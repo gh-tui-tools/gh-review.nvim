@@ -1,0 +1,290 @@
+*gh-review.txt*  GitHub PR Code Review for Neovim 0.10+
+
+==============================================================================
+CONTENTS                                                  *gh-review-contents*
+
+    1. Introduction .................. |gh-review-introduction|
+    2. Requirements .................. |gh-review-requirements|
+    3. Workflows ..................... |gh-review-workflows|
+    4. Commands ...................... |gh-review-commands|
+    5. Diff View .................... |gh-review-diff-view|
+    6. Signs and Virtual Text ........ |gh-review-signs|
+    7. Thread Buffer ................ |gh-review-thread-buffer|
+    8. Files List ................... |gh-review-files-list|
+    9. Statusline ................... |gh-review-statusline|
+   10. vim.ui Integration ........... |gh-review-vim-ui|
+
+==============================================================================
+1. Introduction                                       *gh-review-introduction*
+
+gh-review.nvim is a Neovim 0.10+ plugin for reviewing GitHub pull requests.
+It provides side-by-side diffs, review thread viewing and commenting, commit
+suggestions, and review submission — all driven by the `gh` CLI.
+
+The goal of this plugin is to provide the simplest means possible for
+performing GitHub PR reviews.  It is designed for the use case where you
+have already identified a specific PR or PR branch you are ready to review.
+Anything beyond that is a non-goal — for example, GitHub Issues,
+Notifications, Discussions, Actions, PR listing, or label/assignee/reviewer
+management.  You are expected to perform those tasks using other tooling.
+
+==============================================================================
+2. Requirements                                       *gh-review-requirements*
+
+- Neovim 0.10 or later
+- `gh` CLI (https://cli.github.com), authenticated
+- A git repository with a GitHub remote
+
+==============================================================================
+3. Workflows                                             *gh-review-workflows*
+
+The plugin has two main workflows.
+
+CHECKOUT WORKFLOW ~
+                                                  *gh-review-checkout-workflow*
+
+The checkout workflow is typically used by a project maintainer reviewing a
+contributor’s PR.  The branch is checked out locally so the reviewer can
+make edits, commit fixes, and push directly.
+
+Use |:GHReview| with no argument (auto-detects the PR from the current
+branch), a PR number, or a URL that refers to the same repo as the current
+working directory.
+
+- If the current branch already matches the PR’s head ref, the plugin
+  skips the checkout prompt and loads the UI immediately.
+- Otherwise, the plugin prompts to check out the branch.  On confirmation,
+  the branch is fetched and checked out, and push tracking is configured
+  automatically (for both same-repo and fork PRs).
+- The right/head diff buffer is editable: |:w| writes to the working tree.
+  External file changes (e.g., from another editor or `git stash pop`) are
+  detected via mtime tracking, and the plugin prompts to reload.
+- `git push` pushes changes back to the PR branch with no extra flags.
+
+If you decline the checkout, or the checkout fails (e.g., dirty working
+tree), the plugin falls back to the no-checkout workflow.
+
+NO-CHECKOUT WORKFLOW ~
+                                               *gh-review-no-checkout-workflow*
+
+The no-checkout workflow is more typical of a non-maintainer reviewer who only
+needs to read the diff and leave comments.
+
+Use |:GHReview| with a URL that refers to a different repo than the current
+working directory.  This workflow also activates as a fallback when a checkout
+is declined or fails.
+
+- No checkout is offered or attempted.
+- Diff content is fetched via the GitHub API.
+- The right/head diff buffer is read-only.
+- Comments, suggestions, and review submission all work normally.
+
+A quick-start sequence for either workflow: >
+
+    :GHReview 123           Open PR #123 (or :GHReview {url})
+    <CR>                    Open a file’s side-by-side diff
+    ]t / [t                 Jump between review threads
+    gt                      View a thread
+    gc                      Add a comment
+    :GHReviewStart          Start a pending review (optional)
+    :GHReviewSubmit         Submit the review
+    :GHReviewClose          Close all review buffers
+<
+==============================================================================
+4. Commands                                               *gh-review-commands*
+
+                                                                   *:GHReview*
+:GHReview               With no argument, detect the PR from the current
+                        branch via `gh pr view`.
+
+:GHReview {number}      Open a pull request by number.
+
+:GHReview {url}         Open a pull request by GitHub URL.  If the URL’s
+                        repo matches the local `origin` remote, the checkout
+                        workflow is used; otherwise the no-checkout workflow.
+
+                        See |gh-review-workflows| for details on when the
+                        branch is checked out and when it is not.
+
+                                                              *:GHReviewFiles*
+:GHReviewFiles          Toggle the changed files list buffer.
+
+                                                              *:GHReviewStart*
+:GHReviewStart          Start a pending review.  All subsequent comments will
+                        be held as pending until the review is submitted.
+                        This is optional; |:GHReviewSubmit| works without it.
+                        If a pending review already exists on the PR (from a
+                        previous session or the GitHub web UI), it is detected
+                        automatically and reused.
+
+                                                             *:GHReviewSubmit*
+:GHReviewSubmit         Submit a review.  Prompts for the review action
+                        (Comment, Approve, or Request changes) and an optional
+                        body.  If a pending review is active, it is submitted;
+                        otherwise a review is created and submitted in one
+                        step.
+
+                                                            *:GHReviewDiscard*
+:GHReviewDiscard        Discard the pending review.  Prompts for confirmation,
+                        then deletes the review and all its pending comments.
+
+                                                              *:GHReviewClose*
+:GHReviewClose          Close all review buffers and reset plugin state.
+
+==============================================================================
+5. Diff View                                             *gh-review-diff-view*
+
+The diff view shows two vertically split buffers in Neovim’s native diff mode:
+the left buffer shows the base version (at the merge base commit) and the
+right buffer shows the head version (at the PR’s head commit).
+
+In the checkout workflow, the right buffer is editable.  |:w| writes to the
+working tree, and external file changes are detected automatically.  If the
+file changes on disk (e.g., from another editor), the plugin prompts to
+reload.
+
+In the no-checkout workflow, the right buffer is read-only.
+
+Both diff windows display a winbar showing the PR number, file path,
+side (base/head), and a short commit OID for persistent context.
+
+DIFF MAPPINGS ~
+                                                    *gh-review-diff-mappings*
+
+gt                      Open the review thread at the cursor line.
+gc                      Create a new comment at the cursor line.
+                        In visual mode, creates a multi-line comment.
+gs                      Create a suggestion at the cursor line (right buffer
+                        only).  In visual mode, creates a multi-line
+                        suggestion.
+]t                      Jump to the next review thread sign.
+[t                      Jump to the previous review thread sign.
+K                       Preview the thread at the cursor line in a floating
+                        window.  Lighter than `gt` — no split, no reply
+                        area.  Close with `q`, `<Esc>`, or |BufLeave|.
+gf                      Toggle the files list.
+q                       Close the diff view, returning to the files list.
+
+==============================================================================
+6. Signs and Virtual Text                                  *gh-review-signs*
+
+Review threads are indicated by extmarks in the sign column of diff buffers:
+
+CT                      Comment thread (blue).  The most recent comment has
+                        state COMMENTED.
+CR                      Resolved thread (green).
+CP                      Pending thread (yellow).  The thread contains a
+                        comment from the current pending review.
+
+Each sign is accompanied by virtual text at end-of-line showing the first
+comment’s author and a truncated body (up to 60 characters),
+highlighted with `GHReviewVirtText`.  This gives at-a-glance context without
+opening the thread.
+
+Signs are placed on the appropriate side (left or right buffer) depending on
+the thread’s diff side.  For outdated threads where the line number is no
+longer valid, the sign falls back to the original line number.
+
+Use `]t` and `[t` to jump between signs.  Use `K` to preview a thread in a
+floating window.
+
+Highlight groups (all set with `default = true`, so user overrides take
+precedence):
+
+`GHReviewThread`          Sign column text for normal threads.
+`GHReviewThreadResolved`  Sign column text for resolved threads.
+`GHReviewThreadPending`   Sign column text for pending threads.
+`GHReviewVirtText`        Virtual text showing comment previews.
+
+==============================================================================
+7. Thread Buffer                                     *gh-review-thread-buffer*
+
+The thread buffer opens in a bottom split showing the thread’s code context,
+comments, and a reply area: >
+
+    Thread on src/main.rs:42  [Active]
+    ----------------------------------------------------------------
+      42 + | let x = foo();
+    ----------------------------------------------------------------
+
+    alice (2025-01-15):
+      Looks good
+
+    -- Reply below (Ctrl-S to submit, Ctrl-R to resolve, Ctrl-Q to cancel) --
+
+<
+The area above the separator is read-only.  The area below is the reply
+editor.
+
+THREAD MAPPINGS ~
+                                                  *gh-review-thread-mappings*
+
+CTRL-S                  Submit the reply text (below the separator line).
+CTRL-R                  Resolve or unresolve the thread.
+q                       Close the thread buffer.
+CTRL-Q                  Close the thread buffer (works in insert mode too).
+
+The thread buffer uses |’buftype’| `acwrite`, so |:w| also submits the reply.
+
+@-MENTION COMPLETION ~
+                                              *gh-review-thread-completion*
+
+The thread buffer sets |’omnifunc’| to a function that completes
+`@`-mentions from thread participants.  Trigger with CTRL-X CTRL-O in
+insert mode.  The completion list includes all unique comment authors
+across all review threads.
+
+==============================================================================
+8. Files List                                           *gh-review-files-list*
+
+The files list opens in a bottom split showing changed files with their
+diff stats and thread counts: >
+
+    https://github.com/owner/repo/pull/123: Fix the widget
+    Files changed (3)
+
+      +12 -3   M  src/main.rs         [2 threads]
+      +45 -0   A  src/new_file.rs
+      +0  -22  D  src/old_file.rs
+<
+Mappings:
+
+<CR>                    Open side-by-side diff for the file under cursor.
+q                       Close the files list.
+gf                      Close the files list (same as q).
+R                       Refresh review threads from GitHub.
+
+==============================================================================
+9. Statusline                                          *gh-review-statusline*
+
+The plugin provides a statusline component for integration with statusline
+plugins (lualine, heirline, etc.): >lua
+
+    require("gh_review").statusline()
+<
+Returns an empty string when no review is active, or a summary like
+`PR #42 · reviewing · 4 threads`.
+
+Example with lualine: >lua
+
+    require("lualine").setup({
+      sections = {
+        lualine_x = { require("gh_review").statusline },
+      },
+    })
+<
+==============================================================================
+10. vim.ui Integration                                    *gh-review-vim-ui*
+
+All user prompts (submit review action, review body, discard confirmation,
+checkout confirmation, external file change reload) use |vim.ui.select()|
+and |vim.ui.input()| instead of legacy |inputlist()| / |input()|.
+
+Plugins like dressing.nvim or fzf-lua that override `vim.ui` hooks will
+automatically provide their enhanced UIs for these prompts.
+
+All keymaps include `desc` fields, making them discoverable via which-key.nvim
+and |:map|.
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
