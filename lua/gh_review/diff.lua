@@ -533,6 +533,25 @@ local function show_diff(path, left_content, right_content)
   -- Position cursor in the right (head) window at the top
   vim.fn.win_gotoid(vim.fn.bufwinid(right_bufnr))
   vim.cmd("normal! gg")
+
+  -- Workaround: Neovim fails to render syntax concealing when
+  -- foldmethod=diff has closed folds.  Opening all folds, forcing
+  -- a redraw, then re-closing them refreshes the conceal state.
+  vim.defer_fn(function()
+    for _, bid in ipairs({ left_bufnr, right_bufnr }) do
+      local wid = vim.fn.bufwinid(bid)
+      if wid ~= -1 then
+        vim.fn.win_execute(wid, "normal! zR")
+      end
+    end
+    vim.cmd("redraw")
+    for _, bid in ipairs({ left_bufnr, right_bufnr }) do
+      local wid = vim.fn.bufwinid(bid)
+      if wid ~= -1 then
+        vim.fn.win_execute(wid, "normal! zM")
+      end
+    end
+  end, 50)
 end
 
 local function fetch_graphql_content(ref, path, callback)

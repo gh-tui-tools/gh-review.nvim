@@ -222,6 +222,12 @@ When `is_local_checkout` is true, the right buffer is set up with:
 
 `setup_diff_buffer()` sets `syntax=<lang>` based on the file extension, using `syntax=` instead of `filetype=` to avoid triggering FileType autocmds (which would cause LSP/linter plugins to attach). A map covers common extensions; unrecognized extensions fall through to the extension name itself.
 
+#### Concealing
+
+Syntax concealing (e.g., hiding markdown link URLs) works when `conceallevel` is set and the syntax file defines `conceal` rules. However, both Vim and Neovim have a rendering bug where `foldmethod=diff` with closed folds prevents concealing from rendering on visible lines — even though the conceal rules are active and `conceallevel` is set (vim/vim#19423, neovim/neovim#37893).
+
+`show_diff()` works around this by deferring a fold cycle after the initial render: open all folds (`zR`), force a `redraw`, then re-close all folds (`zM`). The redraw between open and close is essential — without it, the workaround has no effect. This runs via `vim.defer_fn(..., 50)` to let the initial diff render complete first.
+
 #### Fold guard
 
 Plugins (LSP, linters) may asynchronously override `foldmethod` on diff buffers. A global `OptionSet` autocmd in `plugin/gh_review.lua` restores `foldmethod=diff` whenever it changes on buffers marked with `vim.b.gh_review_diff`.
