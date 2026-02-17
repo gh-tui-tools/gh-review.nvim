@@ -142,29 +142,30 @@ Returns `""` when no review is active, or a summary like `PR #42 · reviewing ·
 
 ## Comparison with other plugins
 
-| Feature                          | gh-review.nvim      | [gh-review.vim][]   | [gh.nvim][]         | [octo.nvim][]       |
-|----------------------------------|---------------------|---------------------|---------------------|---------------------|
-| **Platform**                     | Neovim 0.10+        | Vim 9.0+            | Neovim              | Neovim 0.10+        |
-| **PR review: side-by-side diff** | Yes                 | Yes                 | Yes                 | Yes                 |
-| **PR review: comments/threads**  | Yes                 | Yes                 | Yes                 | Yes                 |
-| **PR review: code suggestions**  | Yes                 | Yes                 | No                  | Yes                 |
-| **PR review: submit review**     | Yes                 | Yes                 | Yes                 | Yes                 |
-| **PR review: resolve threads**   | Yes                 | Yes                 | Yes                 | Yes                 |
-| **PR review: thread signs**      | Yes (+ virtual text)| Yes (+ virtual text)| No                  | No                  |
-| **Editable diff buffers**        | Yes                 | Yes                 | Yes (via checkout)  | No                  |
-| **External change detection**    | Yes                 | Yes                 | No                  | No                  |
-| **Fork PR push tracking**        | Yes                 | Yes                 | Yes                 | No                  |
-| **PR listing/browsing**          | No (non-goal)       | No (non-goal)       | Yes                 | Yes                 |
-| **Merge PRs**                    | No (non-goal)       | No (non-goal)       | No                  | Yes                 |
-| **Labels/assignees/reviewers**   | No (non-goal)       | No (non-goal)       | No                  | Yes                 |
-| **GitHub Issues**                | No (non-goal)       | No (non-goal)       | Yes                 | Yes                 |
-| **Notifications**                | No (non-goal)       | No (non-goal)       | Yes                 | Yes                 |
-| **Discussions**                  | No (non-goal)       | No (non-goal)       | No                  | Yes                 |
-| **Actions/Workflows**            | No (non-goal)       | No (non-goal)       | No                  | Yes                 |
-| **Reactions**                    | No (non-goal)       | No (non-goal)       | No                  | Yes                 |
-| **Dependencies**                 | `gh` CLI            | `gh` CLI            | `gh` CLI, litee.nvim| `gh` CLI, plenary.nvim, picker |
+| Feature                          | gh-review.nvim      | [gh-review.vim][]   | [ghlite.nvim][]     | [gh.nvim][]         | [octo.nvim][]       |
+|----------------------------------|---------------------|---------------------|---------------------|---------------------|---------------------|
+| **Platform**                     | Neovim 0.10+        | Vim 9.0+            | Neovim 0.10+        | Neovim              | Neovim 0.10+        |
+| **PR review: side-by-side diff** | Yes                 | Yes                 | Via diffview.nvim   | Yes                 | Yes                 |
+| **PR review: comments/threads**  | Yes                 | Yes                 | Yes                 | Yes                 | Yes                 |
+| **PR review: code suggestions**  | Yes                 | Yes                 | No                  | No                  | Yes                 |
+| **PR review: submit review**     | Yes                 | Yes                 | Yes                 | Yes                 | Yes                 |
+| **PR review: resolve threads**   | Yes                 | Yes                 | No                  | Yes                 | Yes                 |
+| **PR review: thread signs**      | Yes (+ virtual text)| Yes (+ virtual text)| As diagnostics      | No                  | No                  |
+| **Editable diff buffers**        | Yes                 | Yes                 | No                  | Yes (via checkout)  | No                  |
+| **External change detection**    | Yes                 | Yes                 | No                  | No                  | No                  |
+| **Fork PR push tracking**        | Yes                 | Yes                 | No                  | Yes                 | No                  |
+| **PR listing/browsing**          | No (non-goal)       | No (non-goal)       | Yes                 | Yes                 | Yes                 |
+| **Merge PRs**                    | No (non-goal)       | No (non-goal)       | Yes                 | No                  | Yes                 |
+| **Labels/assignees/reviewers**   | No (non-goal)       | No (non-goal)       | No                  | No                  | Yes                 |
+| **GitHub Issues**                | No (non-goal)       | No (non-goal)       | No                  | Yes                 | Yes                 |
+| **Notifications**                | No (non-goal)       | No (non-goal)       | No                  | Yes                 | Yes                 |
+| **Discussions**                  | No (non-goal)       | No (non-goal)       | No                  | No                  | Yes                 |
+| **Actions/Workflows**            | No (non-goal)       | No (non-goal)       | No                  | No                  | Yes                 |
+| **Reactions**                    | No (non-goal)       | No (non-goal)       | No                  | No                  | Yes                 |
+| **Dependencies**                 | `gh` CLI            | `gh` CLI            | `gh` CLI            | `gh` CLI, litee.nvim| `gh` CLI, plenary.nvim, picker |
 
 [gh-review.vim]: https://github.com/gh-tui-tools/gh-review.vim
+[ghlite.nvim]: https://github.com/daliusd/ghlite.nvim
 [gh.nvim]: https://github.com/ldelossa/gh.nvim
 [octo.nvim]: https://github.com/pwntester/octo.nvim
 
