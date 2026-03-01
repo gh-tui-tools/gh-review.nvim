@@ -80,6 +80,7 @@ When the URL refers to a different repo than the current working directory, no c
 gt                      View a thread
 K                       Preview a thread (floating window)
 gc                      Add a comment
+gF                      Jump to the file with LSP (checkout only)
 :GHReviewSubmit         Submit a review
 :GHReviewClose          Close all review buffers
 ```
@@ -106,6 +107,7 @@ gc                      Add a comment
 | `[t`  | Jump to the previous review thread                    |
 | `K`   | Preview the thread at cursor (floating window)        |
 | `gf`  | Toggle the files list                                 |
+| `gF`  | Go to file at cursor line (checkout only)              |
 | `q`   | Close the diff view                                   |
 
 ## Thread mappings

@@ -453,6 +453,7 @@ local function setup_diff_buffer(bufnr, name, path, content, editable)
   vim.keymap.set("n", "gs", create_suggestion_at_cursor, { buffer = bufnr, silent = true, desc = "New suggestion" })
   vim.keymap.set("x", "gs", create_suggestion_visual, { buffer = bufnr, silent = true, desc = "New suggestion (range)" })
   vim.keymap.set("n", "gf", function() require("gh_review.files").toggle() end, { buffer = bufnr, silent = true, desc = "Toggle files list" })
+  vim.keymap.set("n", "gF", function() M.goto_file() end, { buffer = bufnr, silent = true, desc = "Go to file (checkout only)" })
   vim.keymap.set("n", "q", function() M.close_diff() end, { buffer = bufnr, silent = true, desc = "Close diff" })
   vim.keymap.set("n", "K", preview_thread_at_cursor, { buffer = bufnr, silent = true, desc = "Preview thread" })
 end
@@ -666,6 +667,32 @@ function M.open(path)
   local head_oid = state.get_head_oid()
 
   fetch_contents(base_oid, head_oid, path)
+end
+
+function M.goto_file()
+  if not state.is_local_checkout() then
+    print("gF requires a local checkout review")
+    return
+  end
+  if get_current_side() ~= "RIGHT" then
+    print("gF works from the right (head) buffer only")
+    return
+  end
+
+  local lnum = vim.fn.line(".")
+  local path = state.get_diff_path()
+  local right = state.get_right_bufnr()
+  local winid = right ~= -1 and vim.fn.bufwinid(right) or -1
+
+  M.close_diff()
+
+  if winid ~= -1 and vim.api.nvim_win_is_valid(winid) then
+    vim.fn.win_gotoid(winid)
+  end
+  vim.cmd("edit " .. vim.fn.fnameescape(path))
+  local line_count = vim.api.nvim_buf_line_count(0)
+  if lnum > line_count then lnum = line_count end
+  vim.api.nvim_win_set_cursor(0, { lnum, 0 })
 end
 
 function M.close_diff()

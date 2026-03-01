@@ -86,6 +86,7 @@ A quick-start sequence for either workflow: >
     ]t / [t                 Jump between review threads
     gt                      View a thread
     gc                      Add a comment
+    gF                      Jump to the file with LSP (checkout only)
     :GHReviewStart          Start a pending review (optional)
     :GHReviewSubmit         Submit the review
     :GHReviewClose          Close all review buffers
@@ -163,6 +164,9 @@ K                       Preview the thread at the cursor line in a floating
                         window.  Lighter than `gt` — no split, no reply
                         area.  Close with `q`, `<Esc>`, or |BufLeave|.
 gf                      Toggle the files list.
+gF                      Go to the file at the cursor line (checkout workflow
+                        only, right buffer only).  Closes the diff view and
+                        opens the working-tree file with full LSP support.
 q                       Close the diff view, returning to the files list.
 
 ==============================================================================
