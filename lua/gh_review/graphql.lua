@@ -49,6 +49,12 @@ M.QUERY_PR_DETAILS = [[
                   id
                   state
                 }
+                reactionGroups {
+                  content
+                  reactors(first: 0) {
+                    totalCount
+                  }
+                }
               }
             }
           }
@@ -90,6 +96,12 @@ M.QUERY_REVIEW_THREADS = [[
                 pullRequestReview {
                   id
                   state
+                }
+                reactionGroups {
+                  content
+                  reactors(first: 0) {
+                    totalCount
+                  }
                 }
               }
             }

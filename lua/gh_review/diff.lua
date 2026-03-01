@@ -112,6 +112,35 @@ function M.refresh_signs()
   end
 end
 
+-- Reaction emoji for comment display
+local REACTION_EMOJI = {
+  THUMBS_UP = "👍",
+  THUMBS_DOWN = "👎",
+  LAUGH = "😄",
+  HOORAY = "🎉",
+  CONFUSED = "😕",
+  HEART = "❤️",
+  ROCKET = "🚀",
+  EYES = "👀",
+}
+
+local function format_reactions(comment)
+  local groups = state.get(comment, "reactionGroups", {})
+  if type(groups) ~= "table" or #groups == 0 then return nil end
+  local parts = {}
+  for _, g in ipairs(groups) do
+    local content_val = state.get(g, "content", "")
+    local reactors = state.get(g, "reactors", {})
+    local count = state.get(reactors, "totalCount", 0)
+    if count > 0 then
+      local emoji = REACTION_EMOJI[content_val] or content_val
+      parts[#parts + 1] = emoji .. " " .. count
+    end
+  end
+  if #parts == 0 then return nil end
+  return "  " .. table.concat(parts, "  ")
+end
+
 -- Module-local state for floating preview window
 local preview_winid = -1
 local preview_bufnr = -1
@@ -175,6 +204,10 @@ local function preview_thread_at_cursor()
     local body_lines = vim.split(body, "\n", { plain = true })
     for _, bl in ipairs(body_lines) do
       lines[#lines + 1] = "  " .. bl
+    end
+    local reaction_line = format_reactions(c)
+    if reaction_line then
+      lines[#lines + 1] = reaction_line
     end
     lines[#lines + 1] = ""
   end

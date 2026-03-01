@@ -320,6 +320,10 @@ Three paths depending on context:
 
 The thread buffer sets `omnifunc` to a custom function that completes `@`-mentions from thread participants. `state.get_participants()` provides the candidate list. Users trigger completion with `Ctrl-X Ctrl-O` (standard Neovim omni-completion).
 
+#### Reactions
+
+Comment reactions from GitHub are displayed after each comment body as emoji with counts (e.g. 👍 3  🎉 1). The `reactionGroups` field is fetched in the GraphQL queries and rendered by `format_reactions()` in both `thread.lua` (thread buffer) and `diff.lua` (floating preview). Reactions are read-only.
+
 ### Statusline component
 
 `require("gh_review").statusline()` returns an empty string when no review is active, or a summary like `PR #42 · reviewing · 4 threads`. Users can integrate this into their statusline plugin (lualine, heirline, etc.).

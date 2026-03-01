@@ -13,6 +13,34 @@ local function format_date(iso_date)
   return (iso_date:gsub("T.*", ""))
 end
 
+local REACTION_EMOJI = {
+  THUMBS_UP = "👍",
+  THUMBS_DOWN = "👎",
+  LAUGH = "😄",
+  HOORAY = "🎉",
+  CONFUSED = "😕",
+  HEART = "❤️",
+  ROCKET = "🚀",
+  EYES = "👀",
+}
+
+local function format_reactions(comment)
+  local groups = state.get(comment, "reactionGroups", {})
+  if type(groups) ~= "table" or #groups == 0 then return nil end
+  local parts = {}
+  for _, g in ipairs(groups) do
+    local content = state.get(g, "content", "")
+    local reactors = state.get(g, "reactors", {})
+    local count = state.get(reactors, "totalCount", 0)
+    if count > 0 then
+      local emoji = REACTION_EMOJI[content] or content
+      parts[#parts + 1] = emoji .. " " .. count
+    end
+  end
+  if #parts == 0 then return nil end
+  return "  " .. table.concat(parts, "  ")
+end
+
 local function get_reply_text(bufnr, reply_start)
   if reply_start < 0 then return "" end
   local lines = vim.api.nvim_buf_get_lines(bufnr, reply_start - 1, -1, false)
@@ -280,6 +308,10 @@ local function show_thread(t)
     local body_lines = vim.split(body, "\n", { plain = true })
     for _, bl in ipairs(body_lines) do
       lines[#lines + 1] = "  " .. bl
+    end
+    local reaction_line = format_reactions(c)
+    if reaction_line then
+      lines[#lines + 1] = reaction_line
     end
     lines[#lines + 1] = ""
   end

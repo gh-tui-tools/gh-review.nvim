@@ -130,6 +130,8 @@ gF                      Jump to the file with LSP (checkout only)
 
 Each sign is accompanied by virtual text at end-of-line showing the first comment’s author and a truncated body — giving at-a-glance context without opening the thread.
 
+Comment reactions are displayed as emoji with counts after each comment body in the thread buffer and floating preview.
+
 ## `vim.ui` integration
 
 All prompts (submit review, discard review, checkout, file reload) use `vim.ui.select` and `vim.ui.input`. Plugins like [dressing.nvim](https://github.com/stevearc/dressing.nvim) or [fzf-lua](https://github.com/ibhagwan/fzf-lua) that override these hooks will automatically provide their enhanced UIs.

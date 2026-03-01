@@ -185,6 +185,18 @@ comment’s author and a truncated body (up to 60 characters),
 highlighted with `GHReviewVirtText`.  This gives at-a-glance context without
 opening the thread.
 
+REACTIONS ~
+                                                      *gh-review-reactions*
+
+Comment reactions are displayed after each comment body in both the thread
+buffer and the floating preview (`K`).  Reactions appear as emoji with
+counts, for example:
+
+  👍 3  🎉 1
+
+Reactions are read-only — the plugin does not provide a way to add or
+remove reactions.
+
 Signs are placed on the appropriate side (left or right buffer) depending on
 the thread’s diff side.  For outdated threads where the line number is no
 longer valid, the sign falls back to the original line number.
