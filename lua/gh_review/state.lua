@@ -84,9 +84,6 @@ function M.is_file_checked(path) return checked_files[path] == true end
 function M.set_file_checked(path, checked)
   checked_files[path] = checked and true or nil
 end
-function M.toggle_file_checked(path)
-  checked_files[path] = not checked_files[path]
-end
 
 function M.get_pending_review_id() return pending_review_id end
 function M.set_pending_review_id(id) pending_review_id = id end
