@@ -19,7 +19,7 @@ syntax match ghReviewFlagM '\v\s\zsM\ze\s\s' contained
 syntax match ghReviewFlagR '\v\s\zsR\ze\s\s' contained
 syntax match ghReviewFlagC '\v\s\zsC\ze\s\s' contained
 syntax match ghReviewThreads '\v\[\d+ threads?\]' contained
-syntax match ghReviewFileLine '\v^  \+.*$' contains=ghReviewAdditions,ghReviewDeletions,ghReviewFlagA,ghReviewFlagD,ghReviewFlagM,ghReviewFlagR,ghReviewFlagC,ghReviewThreads
+syntax match ghReviewFileLine '\v^\[.\] \+.*$' contains=ghReviewAdditions,ghReviewDeletions,ghReviewFlagA,ghReviewFlagD,ghReviewFlagM,ghReviewFlagR,ghReviewFlagC,ghReviewThreads
 
 highlight default ghReviewURL ctermfg=2 guifg=#98c379 term=underline cterm=underline gui=underline
 highlight default link ghReviewTitle Title

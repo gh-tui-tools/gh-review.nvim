@@ -38,7 +38,8 @@ local function render()
       thread_info = string.format("  [%d thread%s]", thread_count, thread_count > 1 and "s" or "")
     end
 
-    lines[#lines + 1] = string.format("  +%-4d -%-4d %s  %s%s", additions, deletions, flag, path, thread_info)
+    local checkbox = state.is_file_checked(path) and "[x]" or "[ ]"
+    lines[#lines + 1] = string.format("%s +%-4d -%-4d %s  %s%s", checkbox, additions, deletions, flag, path, thread_info)
   end
 
   local bufnr = state.get_files_bufnr()
@@ -51,6 +52,19 @@ local function render()
   if winid ~= -1 then
     vim.api.nvim_win_set_cursor(winid, { 4, 0 })
   end
+end
+
+local function toggle_checked_under_cursor()
+  local lnum = vim.fn.line(".")
+  if lnum <= 3 then return end
+  local file_idx = lnum - 3
+  local files = state.get_changed_files()
+  if file_idx < 1 or file_idx > #files then return end
+  local path = files[file_idx].path
+  state.toggle_file_checked(path)
+  local pos = vim.api.nvim_win_get_cursor(0)
+  render()
+  vim.api.nvim_win_set_cursor(0, pos)
 end
 
 local function open_file_under_cursor()
@@ -89,6 +103,7 @@ local function setup_buffer()
 
   -- Keymaps
   vim.keymap.set("n", "<CR>", open_file_under_cursor, { buffer = bufnr, silent = true, desc = "Open diff" })
+  vim.keymap.set("n", "<Space>", toggle_checked_under_cursor, { buffer = bufnr, silent = true, desc = "Toggle file reviewed" })
   vim.keymap.set("n", "q", function() M.close() end, { buffer = bufnr, silent = true, desc = "Close files list" })
   vim.keymap.set("n", "gf", function() M.close() end, { buffer = bufnr, silent = true, desc = "Close files list" })
   vim.keymap.set("n", "R", refresh_and_render, { buffer = bufnr, silent = true, desc = "Refresh threads" })

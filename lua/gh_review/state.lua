@@ -39,6 +39,9 @@ local repo_name = ""
 -- Changed files: list of tables with path, additions, deletions, changeType
 local changed_files = {}
 
+-- Set of file paths marked as reviewed
+local checked_files = {}
+
 -- Review threads indexed by id
 local threads = {}
 
@@ -76,6 +79,11 @@ function M.get_owner() return repo_owner end
 function M.get_name() return repo_name end
 
 function M.get_changed_files() return changed_files end
+
+function M.is_file_checked(path) return checked_files[path] == true end
+function M.toggle_file_checked(path)
+  checked_files[path] = not checked_files[path]
+end
 
 function M.get_pending_review_id() return pending_review_id end
 function M.set_pending_review_id(id) pending_review_id = id end
@@ -237,6 +245,7 @@ function M.reset()
   repo_owner = ""
   repo_name = ""
   changed_files = {}
+  checked_files = {}
   threads = {}
   pending_review_id = ""
   files_bufnr = -1
