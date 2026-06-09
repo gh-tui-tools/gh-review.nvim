@@ -47,10 +47,12 @@ local function render()
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   vim.bo[bufnr].modifiable = false
 
-  -- Position cursor on first file line
   local winid = vim.fn.bufwinid(bufnr)
   if winid ~= -1 then
-    vim.api.nvim_win_set_cursor(winid, { 4, 0 })
+    local cursor = vim.api.nvim_win_get_cursor(winid)
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+    local row = math.max(4, math.min(cursor[1], line_count))
+    vim.api.nvim_win_set_cursor(winid, { row, cursor[2] })
   end
 end
 
