@@ -61,10 +61,24 @@ local function toggle_checked_under_cursor()
   local files = state.get_changed_files()
   if file_idx < 1 or file_idx > #files then return end
   local path = files[file_idx].path
-  state.toggle_file_checked(path)
-  local pos = vim.api.nvim_win_get_cursor(0)
+
+  -- Optimistically flip locally, then sync the "Viewed" state to GitHub.
+  local checked = not state.is_file_checked(path)
+  state.set_file_checked(path, checked)
   render()
-  vim.api.nvim_win_set_cursor(0, pos)
+
+  local api = require("gh_review.api")
+  local graphql = require("gh_review.graphql")
+  local mutation = checked and graphql.MUTATION_MARK_FILE_VIEWED or graphql.MUTATION_UNMARK_FILE_VIEWED
+  local vars = { pullRequestId = state.get_pr_id(), path = path }
+  api.graphql(mutation, vars, function(result)
+    local data = ((result or {}).data) or {}
+    if not (data.markFileAsViewed or data.unmarkFileAsViewed) then
+      -- Mutation failed; revert local state.
+      state.set_file_checked(path, not checked)
+      M.rerender()
+    end
+  end)
 end
 
 local function open_file_under_cursor()

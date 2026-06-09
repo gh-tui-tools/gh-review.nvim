@@ -24,6 +24,7 @@ M.QUERY_PR_DETAILS = [[
             additions
             deletions
             changeType
+            viewerViewedState
           }
         }
         reviewThreads(first: 100) {
@@ -215,6 +216,26 @@ M.MUTATION_UNRESOLVE_THREAD = [[
       thread {
         id
         isResolved
+      }
+    }
+  }
+]]
+
+M.MUTATION_MARK_FILE_VIEWED = [[
+  mutation($pullRequestId: ID!, $path: String!) {
+    markFileAsViewed(input: {pullRequestId: $pullRequestId, path: $path}) {
+      pullRequest {
+        id
+      }
+    }
+  }
+]]
+
+M.MUTATION_UNMARK_FILE_VIEWED = [[
+  mutation($pullRequestId: ID!, $path: String!) {
+    unmarkFileAsViewed(input: {pullRequestId: $pullRequestId, path: $path}) {
+      pullRequest {
+        id
       }
     }
   }
