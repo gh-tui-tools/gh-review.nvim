@@ -65,9 +65,11 @@ local function toggle_checked_under_cursor()
   local path = files[file_idx].path
 
   -- Optimistically flip locally, then sync the "Viewed" state to GitHub.
+  -- M.rerender() preserves the cursor position (see render()), keeping this
+  -- interactive toggle from jumping the user back to the first file.
   local checked = not state.is_file_checked(path)
   state.set_file_checked(path, checked)
-  render()
+  M.rerender()
 
   local api = require("gh_review.api")
   local graphql = require("gh_review.graphql")
@@ -76,9 +78,13 @@ local function toggle_checked_under_cursor()
   api.graphql(mutation, vars, function(result)
     local data = ((result or {}).data) or {}
     if not (data.markFileAsViewed or data.unmarkFileAsViewed) then
-      -- Mutation failed; revert local state.
-      state.set_file_checked(path, not checked)
-      M.rerender()
+      -- Mutation failed; revert local state, but only if the user hasn't
+      -- toggled this file again while the request was in flight (otherwise
+      -- we'd clobber their newer, intentional state).
+      if state.is_file_checked(path) == checked then
+        state.set_file_checked(path, not checked)
+        M.rerender()
+      end
     end
   end)
 end
