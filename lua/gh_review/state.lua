@@ -80,7 +80,7 @@ function M.get_name() return repo_name end
 
 function M.get_changed_files() return changed_files end
 
-function M.is_file_checked(path) return checked_files[path] == true end
+function M.is_file_checked(path) return checked_files[path] or false end
 function M.set_file_checked(path, checked)
   checked_files[path] = checked and true or nil
 end

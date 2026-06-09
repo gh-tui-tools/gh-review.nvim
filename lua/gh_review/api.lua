@@ -23,7 +23,9 @@ function M.run_async(cmd, callback)
   end)
 end
 
--- Run a GraphQL query/mutation.  Callback receives the parsed table.
+-- Run a GraphQL query/mutation.
+-- Callback receives (parsed, err): on success parsed is the decoded table and
+-- err is nil; on failure parsed is nil and err is a human-readable message.
 function M.graphql(query, variables, callback)
   local cmd = { "api", "graphql" }
   for key, val in pairs(variables) do
@@ -37,16 +39,22 @@ function M.graphql(query, variables, callback)
 
   M.run_async(cmd, function(stdout, stderr)
     if stderr and stderr ~= "" then
-      vim.notify("[gh-review] GraphQL error: " .. stderr, vim.log.levels.ERROR)
+      local err = "GraphQL error: " .. stderr
+      vim.notify("[gh-review] " .. err, vim.log.levels.ERROR)
+      callback(nil, err)
       return
     end
     local ok, parsed = pcall(vim.json.decode, stdout)
     if not ok then
-      vim.notify("[gh-review] Failed to parse GraphQL response", vim.log.levels.ERROR)
+      local err = "Failed to parse GraphQL response"
+      vim.notify("[gh-review] " .. err, vim.log.levels.ERROR)
+      callback(nil, err)
       return
     end
     if parsed.errors and #parsed.errors > 0 then
-      vim.notify("[gh-review] GraphQL error: " .. tostring(parsed.errors[1].message), vim.log.levels.ERROR)
+      local err = "GraphQL error: " .. tostring(parsed.errors[1].message)
+      vim.notify("[gh-review] " .. err, vim.log.levels.ERROR)
+      callback(nil, err)
       return
     end
     callback(parsed)

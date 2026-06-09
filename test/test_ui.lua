@@ -196,4 +196,130 @@ h.run_test("Files list: all change type flags rendered correctly", function()
   files.close()
 end)
 
+h.run_test("Files list: checkbox reflects checked state", function()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+
+  files.open()
+  local bufnr = state.get_files_bufnr()
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  h.assert_match("^%[ %]", lines[4], "unchecked file renders [ ]")
+
+  state.set_file_checked("src/new_file.ts", true)
+  files.rerender()
+
+  lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  h.assert_match("^%[x%]", lines[4], "checked file renders [x]")
+  h.assert_match("^%[ %]", lines[5], "other files stay unchecked")
+
+  files.close()
+end)
+
+h.run_test("Files list: viewed state hydrated from viewerViewedState", function()
+  state.reset()
+  local data = fixtures.mock_pr_data()
+  data.data.repository.pullRequest.files.nodes[2].viewerViewedState = "VIEWED"
+  state.set_pr(data)
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+
+  h.assert_true(state.is_file_checked("src/existing.ts"), "VIEWED file should be checked")
+  h.assert_false(state.is_file_checked("src/new_file.ts"), "non-VIEWED file should be unchecked")
+
+  files.close()
+end)
+
+-- Invoke the buffer's <Space> mapping callback with the cursor on the given
+-- 1-indexed row. Calling the mapping's RHS directly avoids fragile termcode
+-- feedkeys handling in headless mode.
+local function press_space(bufnr)
+  local winid = vim.fn.bufwinid(bufnr)
+  vim.fn.win_gotoid(winid)
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+    if m.lhs == " " and m.callback then
+      m.callback()
+      return
+    end
+  end
+  error("no <Space> mapping found on files buffer")
+end
+
+-- Drive the <Space> toggle with the cursor on the given 1-indexed file row,
+-- using a stubbed api.graphql whose response is controlled by `response`.
+local function toggle_file_row(row, response)
+  local api = require("gh_review.api")
+  local original = api.graphql
+  local captured = {}
+  api.graphql = function(query, vars, callback)
+    captured.vars = vars
+    callback(response.result, response.err)
+  end
+
+  local bufnr = state.get_files_bufnr()
+  vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { row, 0 })
+  press_space(bufnr)
+
+  api.graphql = original
+  return captured
+end
+h.run_test("Files list: toggle marks file viewed and persists on success", function()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+  files.open()
+
+  local captured = toggle_file_row(4, { result = { data = { markFileAsViewed = { pullRequest = { id = "PR_abc123" } } } } })
+
+  h.assert_equal("src/new_file.ts", captured.vars.path, "mutation sent for the file under cursor")
+  h.assert_equal("PR_abc123", captured.vars.pullRequestId, "mutation includes PR id")
+  h.assert_true(state.is_file_checked("src/new_file.ts"), "file stays checked after successful mutation")
+
+  local lines = vim.api.nvim_buf_get_lines(state.get_files_bufnr(), 0, -1, false)
+  h.assert_match("^%[x%]", lines[4], "checkbox shows checked after success")
+
+  files.close()
+end)
+
+h.run_test("Files list: toggle reverts optimistic state on failure", function()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+  files.open()
+
+  toggle_file_row(4, { result = nil, err = "GraphQL error: boom" })
+
+  h.assert_false(state.is_file_checked("src/new_file.ts"), "failed mutation reverts to unchecked")
+  local lines = vim.api.nvim_buf_get_lines(state.get_files_bufnr(), 0, -1, false)
+  h.assert_match("^%[ %]", lines[4], "checkbox shows unchecked after failure")
+
+  files.close()
+end)
+
+h.run_test("Files list: toggle on header line is a no-op", function()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+  files.open()
+
+  local called = false
+  local api = require("gh_review.api")
+  local original = api.graphql
+  api.graphql = function() called = true end
+
+  local bufnr = state.get_files_bufnr()
+  vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { 2, 0 })
+  press_space(bufnr)
+
+  api.graphql = original
+  h.assert_false(called, "toggling on a header line should not call the API")
+
+  files.close()
+end)
+
 h.write_results("/tmp/gh_review_test_ui.txt")
