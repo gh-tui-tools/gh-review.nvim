@@ -6,21 +6,6 @@ local M = {}
 
 local BUF_NAME = "gh-review://files"
 
--- Number of header lines rendered before the file list (URL/title, count, blank).
--- The first file is therefore on line HEADER_LINES + 1.
-local HEADER_LINES = 3
-
--- Resolve the changed-file entry under the cursor line, or nil if the cursor is
--- on a header line or past the end of the list. Centralizes the header offset
--- so callers don't reimplement the line -> file index math.
-local function file_under_cursor()
-  local lnum = vim.fn.line(".")
-  local file_idx = lnum - HEADER_LINES
-  local files = state.get_changed_files()
-  if file_idx < 1 or file_idx > #files then return nil end
-  return files[file_idx]
-end
-
 local function change_type_to_flag(change_type)
   if change_type == "ADDED" then return "A"
   elseif change_type == "DELETED" then return "D"
@@ -66,15 +51,18 @@ local function render()
   if winid ~= -1 then
     local cursor = vim.api.nvim_win_get_cursor(winid)
     local line_count = vim.api.nvim_buf_line_count(bufnr)
-    local row = math.max(HEADER_LINES + 1, math.min(cursor[1], line_count))
+    local row = math.max(4, math.min(cursor[1], line_count))
     vim.api.nvim_win_set_cursor(winid, { row, cursor[2] })
   end
 end
 
 local function toggle_checked_under_cursor()
-  local file = file_under_cursor()
-  if not file then return end
-  local path = file.path
+  local lnum = vim.fn.line(".")
+  if lnum <= 3 then return end
+  local file_idx = lnum - 3
+  local files = state.get_changed_files()
+  if file_idx < 1 or file_idx > #files then return end
+  local path = files[file_idx].path
 
   -- Optimistically flip locally, then sync the "Viewed" state to GitHub.
   -- M.rerender() preserves the cursor position (see render()), keeping this
@@ -103,9 +91,14 @@ local function toggle_checked_under_cursor()
 end
 
 local function open_file_under_cursor()
-  local file = file_under_cursor()
-  if not file then return end
-  require("gh_review.diff").open(file.path)
+  local lnum = vim.fn.line(".")
+  -- First 3 lines are header
+  if lnum <= 3 then return end
+  local file_idx = lnum - 3 -- 1-indexed: line 4 = file 1
+  local files = state.get_changed_files()
+  if file_idx < 1 or file_idx > #files then return end
+  local path = files[file_idx].path
+  require("gh_review.diff").open(path)
 end
 
 local function refresh_and_render()
