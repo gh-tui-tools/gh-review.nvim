@@ -434,29 +434,16 @@ local syntax_map = {
   mm = "objcpp",
 }
 
-local function setup_diff_buffer(bufnr, name, path, content, editable)
-  if editable then
-    vim.bo[bufnr].buftype = "acwrite"
+local function setup_diff_buffer(bufnr, name, path, content, real_file)
+  if real_file then
+    -- Real file on disk: don't touch buftype or content
+    vim.bo[bufnr].bufhidden = "hide"
   else
     vim.bo[bufnr].buftype = "nofile"
-  end
-  vim.bo[bufnr].bufhidden = "wipe"
-  vim.bo[bufnr].swapfile = false
-  vim.bo[bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, content)
-  if editable then
-    vim.bo[bufnr].modified = false
-    vim.b[bufnr].gh_review_file_path = path
-    vim.b[bufnr].gh_review_file_mtime = vim.fn.getftime(path)
-    vim.api.nvim_create_autocmd("BufWriteCmd", {
-      buffer = bufnr,
-      callback = function() write_buffer(bufnr, path) end,
-    })
-    vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
-      buffer = bufnr,
-      callback = function() check_external_change(bufnr) end,
-    })
-  else
+    vim.bo[bufnr].bufhidden = "wipe"
+    vim.bo[bufnr].swapfile = false
+    vim.bo[bufnr].modifiable = true
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, content)
     vim.bo[bufnr].modifiable = false
   end
 
@@ -524,8 +511,14 @@ local function show_diff(path, left_content, right_content)
   end
 
   -- Set up the right (head) buffer.
-  local right_bufnr = vim.fn.bufnr(right_name, true)
-  vim.cmd("noautocmd buffer " .. right_bufnr)
+  local right_bufnr
+  if state.is_local_checkout() then
+    vim.cmd("edit " .. vim.fn.fnameescape(path))
+    right_bufnr = vim.api.nvim_get_current_buf()
+  else
+    right_bufnr = vim.fn.bufnr(right_name, true)
+    vim.cmd("noautocmd buffer " .. right_bufnr)
+  end
   state.set_right_bufnr(right_bufnr)
   setup_diff_buffer(right_bufnr, right_name, path, right_content, state.is_local_checkout())
 
@@ -671,9 +664,8 @@ local function fetch_contents(base_oid, head_oid, path)
     end)
   end
 
-  -- Fetch right (head) content
-  if change_type == "DELETED" then
-    right_content = {}
+  -- Fetch right (head) content (skip for local checkout -- we open the real file)
+  if change_type == "DELETED" or state.is_local_checkout() then
     fetches_done = fetches_done + 1
   else
     fetch_git_content(head_oid, path, function(content)
@@ -749,13 +741,15 @@ function M.close_diff()
     end
   end
 
-  -- Replace right diff buffer with an empty buffer
+  -- For real file buffers just turn off diff; for scratch buffers replace with empty
   if right ~= -1 and vim.fn.bufexists(right) == 1 then
     local winid = vim.fn.bufwinid(right)
     if winid ~= -1 then
       vim.fn.win_gotoid(winid)
       vim.cmd("diffoff")
-      vim.cmd("enew")
+      if not state.is_local_checkout() then
+        vim.cmd("enew")
+      end
     end
   end
 
