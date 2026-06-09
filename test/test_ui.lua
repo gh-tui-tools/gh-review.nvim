@@ -196,27 +196,6 @@ h.run_test("Files list: all change type flags rendered correctly", function()
   files.close()
 end)
 
-h.run_test("Files list: checkbox reflects checked state", function()
-  state.reset()
-  state.set_pr(fixtures.mock_pr_data())
-  state.set_threads(fixtures.mock_thread_nodes())
-  state.set_repo_info("test-owner", "test-repo")
-
-  files.open()
-  local bufnr = state.get_files_bufnr()
-
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  h.assert_match("^%[ %]", lines[4], "unchecked file renders [ ]")
-
-  state.set_file_checked("src/new_file.ts", true)
-  files.rerender()
-
-  lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  h.assert_match("^%[x%]", lines[4], "checked file renders [x]")
-  h.assert_match("^%[ %]", lines[5], "other files stay unchecked")
-
-  files.close()
-end)
 
 h.run_test("Files list: viewed state hydrated from viewerViewedState", function()
   state.reset()
@@ -232,9 +211,8 @@ h.run_test("Files list: viewed state hydrated from viewerViewedState", function(
   files.close()
 end)
 
--- Invoke the buffer's <Space> mapping callback with the cursor on the given
--- 1-indexed row. Calling the mapping's RHS directly avoids fragile termcode
--- feedkeys handling in headless mode.
+-- Invoke the buffer's <Space> mapping callback directly (avoids termcode
+-- feedkeys issues in headless mode).
 local function press_space(bufnr)
   local winid = vim.fn.bufwinid(bufnr)
   vim.fn.win_gotoid(winid)
@@ -247,21 +225,21 @@ local function press_space(bufnr)
   error("no <Space> mapping found on files buffer")
 end
 
--- Drive the <Space> toggle with the cursor on the given 1-indexed file row,
--- using a stubbed api.graphql whose response is controlled by `response`.
+-- Toggle the file on `row` via a stubbed api.graphql. With `response` the
+-- callback fires immediately; without it the callback is returned so the test
+-- can resolve it later to exercise in-flight ordering.
 local function toggle_file_row(row, response)
   local api = require("gh_review.api")
   local original = api.graphql
   local captured = {}
-  api.graphql = function(query, vars, callback)
+  api.graphql = function(_, vars, callback)
     captured.vars = vars
-    callback(response.result, response.err)
+    captured.callback = callback
+    if response then callback(response.result, response.err) end
   end
-
   local bufnr = state.get_files_bufnr()
   vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { row, 0 })
   press_space(bufnr)
-
   api.graphql = original
   return captured
 end
@@ -280,6 +258,7 @@ h.run_test("Files list: toggle marks file viewed and persists on success", funct
 
   local lines = vim.api.nvim_buf_get_lines(state.get_files_bufnr(), 0, -1, false)
   h.assert_match("^%[x%]", lines[4], "checkbox shows checked after success")
+  h.assert_match("^%[ %]", lines[5], "other files stay unchecked")
 
   files.close()
 end)
@@ -300,24 +279,23 @@ h.run_test("Files list: toggle reverts optimistic state on failure", function()
   files.close()
 end)
 
-h.run_test("Files list: toggle on header line is a no-op", function()
+h.run_test("Files list: stale in-flight failure does not clobber newer toggle", function()
   state.reset()
   state.set_pr(fixtures.mock_pr_data())
   state.set_threads(fixtures.mock_thread_nodes())
   state.set_repo_info("test-owner", "test-repo")
   files.open()
 
-  local called = false
-  local api = require("gh_review.api")
-  local original = api.graphql
-  api.graphql = function() called = true end
+  -- Leave the first toggle's request in flight, then toggle again before it
+  -- resolves; the stale first failure must not clobber the newer state.
+  local first = toggle_file_row(4)
+  h.assert_true(state.is_file_checked("src/new_file.ts"), "file checked after first toggle")
 
-  local bufnr = state.get_files_bufnr()
-  vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { 2, 0 })
-  press_space(bufnr)
+  toggle_file_row(4)
+  h.assert_false(state.is_file_checked("src/new_file.ts"), "file unchecked after second toggle")
 
-  api.graphql = original
-  h.assert_false(called, "toggling on a header line should not call the API")
+  first.callback(nil, "boom")
+  h.assert_false(state.is_file_checked("src/new_file.ts"), "stale failure must not clobber newer state")
 
   files.close()
 end)

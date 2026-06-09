@@ -64,9 +64,8 @@ local function toggle_checked_under_cursor()
   if file_idx < 1 or file_idx > #files then return end
   local path = files[file_idx].path
 
-  -- Optimistically flip locally, then sync the "Viewed" state to GitHub.
-  -- M.rerender() preserves the cursor position (see render()), keeping this
-  -- interactive toggle from jumping the user back to the first file.
+  -- Optimistically flip locally (M.rerender keeps the cursor in place), then
+  -- sync the "Viewed" state to GitHub.
   local checked = not state.is_file_checked(path)
   state.set_file_checked(path, checked)
   M.rerender()
@@ -79,9 +78,8 @@ local function toggle_checked_under_cursor()
     local data = ((result or {}).data) or {}
     local ok = not err and (data.markFileAsViewed or data.unmarkFileAsViewed)
     if not ok then
-      -- Mutation failed; revert local state, but only if the user hasn't
-      -- toggled this file again while the request was in flight (otherwise
-      -- we'd clobber their newer, intentional state).
+      -- Revert, unless the user re-toggled this file while the request was in
+      -- flight (which would make this a stale response we'd be clobbering).
       if state.is_file_checked(path) == checked then
         state.set_file_checked(path, not checked)
         M.rerender()
