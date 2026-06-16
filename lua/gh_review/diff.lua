@@ -447,11 +447,13 @@ local function setup_diff_buffer(bufnr, name, path, content, real_file)
     vim.bo[bufnr].modifiable = false
   end
 
-  -- Set syntax highlighting from path extension.
-  local ext = vim.fn.fnamemodify(path, ":e")
-  if ext and ext ~= "" then
-    local syn = syntax_map[ext] or ext
-    vim.cmd("setlocal syntax=" .. syn)
+  -- Skip for real files: :edit already set up filetype/Treesitter/LSP, which this would clobber.
+  if not real_file then
+    local ext = vim.fn.fnamemodify(path, ":e")
+    if ext and ext ~= "" then
+      local syn = syntax_map[ext] or ext
+      vim.cmd("setlocal syntax=" .. syn)
+    end
   end
 
   local winid = vim.fn.bufwinid(bufnr)
@@ -513,7 +515,10 @@ local function show_diff(path, left_content, right_content)
   -- Set up the right (head) buffer.
   local right_bufnr
   if state.is_local_checkout() then
-    vim.cmd("edit " .. vim.fn.fnameescape(path))
+    -- path is repo-root-relative; make it absolute so :edit works from a subdirectory.
+    local git_dir = vim.fs.find(".git", { upward = true })[1]
+    local abs_path = git_dir and (vim.fs.dirname(git_dir) .. "/" .. path) or path
+    vim.cmd("edit " .. vim.fn.fnameescape(abs_path))
     right_bufnr = vim.api.nvim_get_current_buf()
   else
     right_bufnr = vim.fn.bufnr(right_name, true)
@@ -749,6 +754,14 @@ function M.close_diff()
       vim.cmd("diffoff")
       if not state.is_local_checkout() then
         vim.cmd("enew")
+      else
+        -- Real file buffer stays open: drop our keymaps so `q`/`K` don't shadow
+        -- macro recording / LSP hover. ponytail: list mirrors setup_diff_buffer.
+        for _, key in ipairs({ "gt", "gc", "]t", "[t", "gs", "gf", "gF", "q", "K" }) do
+          pcall(vim.keymap.del, "n", key, { buffer = right })
+        end
+        pcall(vim.keymap.del, "x", "gc", { buffer = right })
+        pcall(vim.keymap.del, "x", "gs", { buffer = right })
       end
     end
   end
