@@ -516,8 +516,8 @@ local function show_diff(path, left_content, right_content)
   local right_bufnr
   if state.is_local_checkout() then
     -- path is repo-root-relative; make it absolute so :edit works from a subdirectory.
-    local git_dir = vim.fs.find(".git", { upward = true })[1]
-    local abs_path = git_dir and (vim.fs.dirname(git_dir) .. "/" .. path) or path
+    local root = vim.fs.root(0, ".git")
+    local abs_path = root and (root .. "/" .. path) or path
     vim.cmd("edit " .. vim.fn.fnameescape(abs_path))
     right_bufnr = vim.api.nvim_get_current_buf()
   else
