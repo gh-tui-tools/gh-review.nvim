@@ -56,6 +56,10 @@ local thread_winid = -1
 local diff_path = ""
 local is_local_checkout = false
 
+-- Window options (foldmethod/signcolumn/number) saved before a local-checkout
+-- diff overrides them on the real file's window, so close_diff can restore them.
+local saved_win_opts = nil
+
 -- ------- Getters / Setters -------
 
 function M.get_pr_id() return pr_id end
@@ -103,6 +107,9 @@ function M.set_diff_path(path) diff_path = path end
 
 function M.is_local_checkout() return is_local_checkout end
 function M.set_local_checkout(val) is_local_checkout = val end
+
+function M.get_saved_win_opts() return saved_win_opts end
+function M.set_saved_win_opts(opts) saved_win_opts = opts end
 
 -- ------- PR data loading -------
 
@@ -246,6 +253,7 @@ function M.reset()
   thread_winid = -1
   diff_path = ""
   is_local_checkout = false
+  saved_win_opts = nil
 end
 
 return M

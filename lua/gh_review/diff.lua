@@ -458,6 +458,17 @@ local function setup_diff_buffer(bufnr, name, path, content, real_file)
 
   local winid = vim.fn.bufwinid(bufnr)
   if winid ~= -1 then
+    -- Real files keep their window after the diff closes, so remember the
+    -- options we override here and restore them in close_diff. Capture once,
+    -- before the first override, so we never save already-diffed values.
+    if real_file and state.get_saved_win_opts() == nil then
+      state.set_saved_win_opts({
+        winid = winid,
+        foldmethod = vim.wo[winid].foldmethod,
+        signcolumn = vim.wo[winid].signcolumn,
+        number = vim.wo[winid].number,
+      })
+    end
     vim.wo[winid].foldmethod = "diff"
     vim.wo[winid].signcolumn = "yes"
     vim.wo[winid].number = false
@@ -756,12 +767,22 @@ function M.close_diff()
         vim.cmd("enew")
       else
         -- Real file buffer stays open: drop our keymaps so `q`/`K` don't shadow
-        -- macro recording / LSP hover. ponytail: list mirrors setup_diff_buffer.
+        -- macro recording / LSP hover. List mirrors setup_diff_buffer.
         for _, key in ipairs({ "gt", "gc", "]t", "[t", "gs", "gf", "gF", "q", "K" }) do
           pcall(vim.keymap.del, "n", key, { buffer = right })
         end
         pcall(vim.keymap.del, "x", "gc", { buffer = right })
         pcall(vim.keymap.del, "x", "gs", { buffer = right })
+        -- Restore the window options the diff overrode. :diffoff leaves
+        -- foldmethod as "diff" (we set it before :diffthis), and it never
+        -- touches signcolumn/number, so the real file would otherwise keep
+        -- diff folding, a forced signcolumn, and hidden line numbers.
+        local wo = state.get_saved_win_opts()
+        if wo and wo.winid == winid then
+          vim.wo[winid].foldmethod = wo.foldmethod
+          vim.wo[winid].signcolumn = wo.signcolumn
+          vim.wo[winid].number = wo.number
+        end
       end
     end
   end
@@ -769,6 +790,7 @@ function M.close_diff()
   state.set_left_bufnr(-1)
   state.set_right_bufnr(-1)
   state.set_diff_path("")
+  state.set_saved_win_opts(nil)
 
   -- Return focus to the files list
   local fb = state.get_files_bufnr()

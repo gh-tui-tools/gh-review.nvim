@@ -337,4 +337,38 @@ h.run_test("Virtual text truncates long bodies to 60 chars", function()
   vim.cmd("bwipeout! " .. right)
 end)
 
+h.run_test("close_diff restores real-file window options for local checkout", function()
+  state.reset()
+
+  -- A local checkout opens the real file on disk as the right/head buffer.
+  local tmpfile = "/tmp/gh_review_test_wo_restore.lua"
+  vim.fn.writefile({ "local a = 1", "return a" }, tmpfile)
+  vim.cmd("edit " .. tmpfile)
+  local rwin = vim.api.nvim_get_current_win()
+  local rbuf = vim.api.nvim_get_current_buf()
+
+  -- Genuine pre-diff options, then what setup_diff_buffer saved + then applied.
+  vim.wo[rwin].foldmethod = "indent"
+  vim.wo[rwin].signcolumn = "auto"
+  vim.wo[rwin].number = true
+  state.set_saved_win_opts({ winid = rwin, foldmethod = "indent", signcolumn = "auto", number = true })
+  vim.wo[rwin].foldmethod = "diff"
+  vim.wo[rwin].signcolumn = "yes"
+  vim.wo[rwin].number = false
+
+  state.set_right_bufnr(rbuf)
+  state.set_diff_path("gh_review_test_wo_restore.lua")
+  state.set_local_checkout(true)
+
+  diff.close_diff()
+
+  h.assert_equal("indent", vim.wo[rwin].foldmethod, "foldmethod should be restored")
+  h.assert_equal("auto", vim.wo[rwin].signcolumn, "signcolumn should be restored")
+  h.assert_true(vim.wo[rwin].number, "number should be restored")
+  h.assert_true(state.get_saved_win_opts() == nil, "saved opts should be cleared")
+
+  vim.fn.delete(tmpfile)
+  pcall(vim.cmd, "bwipeout! " .. rbuf)
+end)
+
 h.write_results("/tmp/gh_review_test_diff_logic.txt")
