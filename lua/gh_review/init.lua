@@ -353,7 +353,11 @@ function M.refresh_threads()
     name = state.get_name(),
     number = state.get_pr_number(),
   }
-  api_mod.graphql(graphql.QUERY_REVIEW_THREADS, refresh_vars, function(result)
+  api_mod.graphql(graphql.QUERY_REVIEW_THREADS, refresh_vars, function(result, err)
+    -- On error, keep the threads we already have; api.graphql has already
+    -- notified. Without this guard a failed refresh would set_threads({}) and
+    -- print "Threads refreshed", wiping the list on any transient error.
+    if err then return end
     local pr = (((result or {}).data or {}).repository or {}).pullRequest
     local thread_nodes = ((pr or {}).reviewThreads or {}).nodes or {}
     state.set_threads(thread_nodes)

@@ -128,9 +128,11 @@ local function submit_reply_via_graphql(body, in_reply_to)
     local review_id = review.id
 
     local inner_vars = { pullRequestReviewId = review_id, threadId = in_reply_to, body = body }
-    api_mod.graphql(graphql.MUTATION_ADD_REVIEW_COMMENT, inner_vars, function(_)
+    api_mod.graphql(graphql.MUTATION_ADD_REVIEW_COMMENT, inner_vars, function(_, comment_err)
+      if comment_err then return end
       local submit_vars = { reviewId = review_id, event = "COMMENT" }
-      api_mod.graphql(graphql.MUTATION_SUBMIT_REVIEW, submit_vars, function(_)
+      api_mod.graphql(graphql.MUTATION_SUBMIT_REVIEW, submit_vars, function(_, submit_err)
+        if submit_err then return end
         print("Reply submitted")
         require("gh_review").refresh_threads()
         M.close_thread_buffer()

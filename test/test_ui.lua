@@ -300,4 +300,26 @@ h.run_test("Files list: stale in-flight failure does not clobber newer toggle", 
   files.close()
 end)
 
+h.run_test("Files list: failed thread refresh keeps existing threads", function()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  state.set_repo_info("test-owner", "test-repo")
+  files.open()
+
+  local before = vim.tbl_count(state.get_threads())
+  h.assert_true(before > 0, "precondition: threads exist before refresh")
+
+  -- A failed refresh must not wipe the thread list or report success.
+  local api = require("gh_review.api")
+  local original = api.graphql
+  api.graphql = function(_, _, callback) callback(nil, "GraphQL error: boom") end
+  require("gh_review").refresh_threads()
+  api.graphql = original
+
+  h.assert_equal(before, vim.tbl_count(state.get_threads()), "threads preserved after failed refresh")
+
+  files.close()
+end)
+
 h.write_results("/tmp/gh_review_test_ui.txt")
