@@ -376,8 +376,9 @@ local function show_thread(t)
     end
   end
 
-  -- Create buffer in a horizontal split below the current window
-  vim.cmd("botright new")
+  -- Create buffer in a horizontal split below the current window. :split
+  -- rather than :new, which would strand the empty buffer it creates.
+  vim.cmd("botright split")
   vim.cmd("resize 15")
   local buf_name = "gh-review://thread"
   local bufnr = vim.fn.bufnr(buf_name, true)

@@ -560,7 +560,7 @@ local function show_diff(path, left_content, right_content)
       vim.cmd("wincmd k")
       -- If we didn't move, files is the only window -- split above it
       if vim.fn.win_getid() == files_winid then
-        vim.cmd("aboveleft new")
+        vim.cmd("aboveleft split")
       end
     end
   end
@@ -581,7 +581,7 @@ local function show_diff(path, left_content, right_content)
   setup_diff_buffer(right_bufnr, right_name, path, right_content, state.is_local_checkout())
 
   -- Set up the left (base) buffer in a vertical split
-  vim.cmd("noautocmd aboveleft vnew")
+  vim.cmd("noautocmd aboveleft vsplit")
   local left_bufnr = vim.fn.bufnr(left_name, true)
   vim.cmd("noautocmd buffer " .. left_bufnr)
   state.set_left_bufnr(left_bufnr)

@@ -150,8 +150,10 @@ function M.open()
     end
   end
 
-  -- Create a new split at the bottom
-  vim.cmd("botright new")
+  -- Create a new split at the bottom. :split rather than :new, because
+  -- :new would open a throwaway empty buffer that is orphaned the moment
+  -- the window is pointed at the files buffer below.
+  vim.cmd("botright split")
   vim.cmd("resize 12")
   local new_bufnr = vim.fn.bufnr(BUF_NAME, true)
   vim.cmd("buffer " .. new_bufnr)
