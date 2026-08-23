@@ -2,6 +2,7 @@
 
 local state = require("gh_review.state")
 local config = require("gh_review.config")
+local win = require("gh_review.win")
 
 local M = {}
 
@@ -169,7 +170,7 @@ function M.close()
     local winid = vim.fn.bufwinid(bufnr)
     if winid ~= -1 then
       vim.fn.win_gotoid(winid)
-      vim.cmd("close")
+      win.close_current()
       -- Let diff windows expand into the freed space and redraw.
       vim.cmd("wincmd =")
       local left_winid = vim.fn.bufwinid(state.get_left_bufnr())

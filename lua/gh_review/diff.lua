@@ -3,6 +3,7 @@
 local state = require("gh_review.state")
 local api_mod = require("gh_review.api")
 local config = require("gh_review.config")
+local win = require("gh_review.win")
 
 local M = {}
 
@@ -543,7 +544,7 @@ local function show_diff(path, left_content, right_content)
     local winid = vim.fn.bufwinid(old_left)
     if winid ~= -1 then
       vim.fn.win_gotoid(winid)
-      vim.cmd("close")
+      win.close_current()
     end
   end
 
@@ -811,7 +812,7 @@ function M.close_diff()
     local winid = vim.fn.bufwinid(left)
     if winid ~= -1 then
       vim.fn.win_gotoid(winid)
-      vim.cmd("close")
+      win.close_current()
     end
   end
 

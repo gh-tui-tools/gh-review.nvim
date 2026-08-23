@@ -394,9 +394,20 @@ end
 
 -- Close all review buffers and reset state.
 function M.close()
-  thread.close_thread_buffer()
-  diff.close_diff()
-  files.close()
+  -- Teardown has to reach the buffer wipe and state.reset() even if a step
+  -- fails, or the plugin is left half-open with no way back short of
+  -- restarting Neovim. Report a failure rather than swallowing it.
+  local function step(what, fn)
+    local ok, err = pcall(fn)
+    if not ok then
+      vim.notify(string.format("[gh-review] %s failed while closing: %s", what, err),
+        vim.log.levels.WARN)
+    end
+  end
+
+  step("thread teardown", thread.close_thread_buffer)
+  step("diff teardown", diff.close_diff)
+  step("files list teardown", files.close)
 
   -- Wipe any remaining gh-review buffers
   for _, bufinfo in ipairs(vim.fn.getbufinfo()) do

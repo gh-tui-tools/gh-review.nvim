@@ -4,6 +4,7 @@ local state = require("gh_review.state")
 local api_mod = require("gh_review.api")
 local graphql = require("gh_review.graphql")
 local config = require("gh_review.config")
+local win = require("gh_review.win")
 
 local M = {}
 
@@ -480,7 +481,7 @@ function M.close_thread_buffer()
     if winid ~= -1 then
       vim.fn.win_gotoid(winid)
       vim.bo[bufnr].modified = false
-      vim.cmd("close")
+      win.close_current()
     end
     if vim.fn.bufexists(bufnr) == 1 then
       vim.cmd("silent! bwipeout! " .. bufnr)
