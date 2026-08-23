@@ -501,6 +501,38 @@ local function setup_diff_buffer(bufnr, name, path, content, real_file)
   config.apply_keymaps(bufnr, "diff", ACTIONS)
 end
 
+-- Make both diff panes use the same highlighting engine.
+--
+-- On a local checkout the head buffer is a real file opened with :edit, so it
+-- has a filetype and Neovim has started treesitter on it. The base buffer is
+-- always a scratch buffer carrying only `setlocal syntax=`. Left alone, the two
+-- panes render identical code in different colours -- @keyword against
+-- Statement, @comment against Comment -- which reads as the diff itself being
+-- wrong rather than as a highlighting mismatch.
+--
+-- The head pane is the reference: mirror whatever it ended up with rather than
+-- mapping the extension to a parser name ourselves, since it already knows its
+-- own language. When it has no treesitter, both panes are on regex syntax
+-- loaded from the same syntax file, so there is nothing to do.
+--
+-- vim.treesitter.start attaches only the highlighter. It fires no FileType
+-- autocmd, so the scratch buffer still never attracts LSP clients or linters,
+-- which is why setup_diff_buffer sets `syntax=` rather than `filetype=`.
+function M.sync_highlighting(left_bufnr, right_bufnr)
+  if not (vim.api.nvim_buf_is_valid(left_bufnr) and vim.api.nvim_buf_is_valid(right_bufnr)) then
+    return
+  end
+  if vim.treesitter.highlighter.active[right_bufnr] == nil then return end
+  if vim.treesitter.highlighter.active[left_bufnr] ~= nil then return end
+
+  local ok, parser = pcall(vim.treesitter.get_parser, right_bufnr)
+  if not ok or not parser then return end
+
+  -- vim.treesitter.start clears 'syntax' itself, so the base pane does not end
+  -- up highlighted twice.
+  pcall(vim.treesitter.start, left_bufnr, parser:lang())
+end
+
 local function show_diff(path, left_content, right_content)
   local left_name = "gh-review://LEFT/" .. path
   local right_name = "gh-review://RIGHT/" .. path
@@ -554,6 +586,8 @@ local function show_diff(path, left_content, right_content)
   vim.cmd("noautocmd buffer " .. left_bufnr)
   state.set_left_bufnr(left_bufnr)
   setup_diff_buffer(left_bufnr, left_name, path, left_content)
+
+  M.sync_highlighting(left_bufnr, right_bufnr)
 
   -- Enable diff mode on both -- left window first, then right. Fold settings
   -- go on after :diffthis, which forces foldmethod=diff and foldlevel=0 itself.

@@ -35,7 +35,7 @@ Two asymmetries make it more than a transcription. gh-review.vim binds `]f` and 
 
 ### Dependencies
 
-The plugin uses only what Neovim 0.10 provides out of the box — no treesitter, no LSP, no picker plugins, no UI frameworks, no async libraries. The sole external dependency is the `gh` CLI. Diff buffers use `syntax=` (not `filetype=`) specifically to avoid triggering FileType autocmds that would attach LSP clients, linters, and treesitter highlighting to ephemeral review buffers. This is a deliberate choice to keep both the implementation and the user experience as minimal and straightforward as possible — just what’s needed to get the job done.
+The plugin uses only what Neovim 0.10 provides out of the box — no nvim-treesitter, no LSP configuration, no picker plugins, no UI frameworks, no async libraries. The sole external dependency is the `gh` CLI. Diff buffers use `syntax=` (not `filetype=`) specifically to avoid triggering FileType autocmds that would attach LSP clients, linters, and treesitter highlighting to ephemeral review buffers. Core `vim.treesitter` is used in exactly one place, to keep the two diff panes highlighted alike; it attaches a highlighter and nothing else, and is part of Neovim rather than a plugin dependency. This is a deliberate choice to keep both the implementation and the user experience as minimal and straightforward as possible — just what’s needed to get the job done.
 
 ## Workflows
 
@@ -229,6 +229,12 @@ When `is_local_checkout` is true, the right buffer is set up with:
 #### Syntax highlighting
 
 `setup_diff_buffer()` sets `syntax=<lang>` based on the file extension, using `syntax=` instead of `filetype=` to avoid triggering FileType autocmds (which would cause LSP/linter plugins to attach). A map covers common extensions; unrecognized extensions fall through to the extension name itself.
+
+That map holds Vim syntax names, not treesitter languages: `tsx` maps to `typescriptreact` where the parser is `tsx`, and `cs` maps to `cs` where the parser is `c_sharp`.
+
+On a local checkout the head buffer is a real file opened with `:edit`, so it has a filetype and Neovim starts treesitter on it, while the base buffer is a scratch buffer carrying only `syntax=`. The two panes would then render identical code through different engines — `@keyword` against `Statement`, `@comment` against `Comment` — which reads as the diff itself being wrong. Because it takes a checkout to happen at all, the symptom looks intermittent.
+
+`sync_highlighting()` mirrors whatever the head pane resolved onto the base pane, asking that buffer for its own `parser:lang()` rather than mapping the extension a second time. When the head pane has no treesitter highlighter it does nothing, so installs that never start treesitter keep both panes on regex syntax loaded from the same syntax file. `vim.treesitter.start()` fires no FileType autocmd, so the scratch buffer still never attracts LSP clients or linters, and it clears `syntax` itself so the base pane is not highlighted twice.
 
 #### Concealing
 
