@@ -35,6 +35,7 @@ local merge_base_oid = ""
 -- Repo info
 local repo_owner = ""
 local repo_name = ""
+local repo_host = ""
 
 -- Changed files: list of tables with path, additions, deletions, changeType
 local changed_files = {}
@@ -81,6 +82,7 @@ function M.set_merge_base_oid(oid) merge_base_oid = oid end
 
 function M.get_owner() return repo_owner end
 function M.get_name() return repo_name end
+function M.get_host() return repo_host end
 
 function M.get_changed_files() return changed_files end
 
@@ -196,29 +198,33 @@ function M.get_repo_info()
   end
   local remote = vim.trim(obj.stdout or "")
 
-  -- Parse SSH format: git@github.com:owner/name.git
-  local ssh_owner, ssh_name = remote:match("git@github%.com:([^/]+)/([^/]+)")
-  if ssh_owner then
-    repo_owner = ssh_owner
-    repo_name = ssh_name:gsub("%.git$", "")
-    return true
+  local host, path = remote:match("^[%w+.-]+://([^/]+)/(.+)$")
+  if not host then
+    host, path = remote:match("^[^@/]+@([^:/]+):(.+)$")
+  end
+  if not host then
+    host, path = remote:match("^([^:/]+):(.+)$")
+  end
+  if host and path then
+    -- SSH URLs can include a username in their authority.
+    host = host:gsub("^.*@", "")
+    local owner, name = path:match("^([^/]+)/([^/]+)")
+    if owner and name then
+      repo_owner = owner
+      repo_name = name:gsub("%.git$", "")
+      repo_host = host
+      return true
+    end
   end
 
-  -- Parse HTTPS format: https://github.com/owner/name.git
-  local https_owner, https_name = remote:match("github%.com/([^/]+)/([^/]+)")
-  if https_owner then
-    repo_owner = https_owner
-    repo_name = https_name:gsub("%.git$", "")
-    return true
-  end
-
-  vim.notify("[gh-review] Could not parse GitHub remote URL: " .. remote, vim.log.levels.ERROR)
+  vim.notify("[gh-review] Could not parse Git remote URL: " .. remote, vim.log.levels.ERROR)
   return false
 end
 
-function M.set_repo_info(owner, name)
+function M.set_repo_info(owner, name, host)
   repo_owner = owner
   repo_name = name
+  repo_host = host or ""
 end
 
 -- ------- Participants -------
@@ -258,6 +264,7 @@ function M.reset()
   merge_base_oid = ""
   repo_owner = ""
   repo_name = ""
+  repo_host = ""
   changed_files = {}
   checked_files = {}
   threads = {}

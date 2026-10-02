@@ -15,8 +15,13 @@ end
 -- Run a gh command asynchronously.  Callback receives (stdout, stderr).
 function M.run_async(cmd, callback)
   local full = { "gh" }
-  for _, v in ipairs(cmd) do
+  local host = require("gh_review.state").get_host()
+  for i, v in ipairs(cmd) do
     full[#full + 1] = v
+    if i == 1 and v == "api" and host ~= "" then
+      full[#full + 1] = "--hostname"
+      full[#full + 1] = host
+    end
   end
   M.run_cmd_async(full, function(stdout, stderr, _)
     callback(stdout, stderr)

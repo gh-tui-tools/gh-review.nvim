@@ -140,10 +140,10 @@ Typically used by a project maintainer reviewing a contributor’s PR. The branc
 Typically used by a non-maintainer reviewer who only needs to read the diff and leave comments.
 
 ```vim
-:GHReview https://github.com/owner/repo/pull/123
+:GHReview https://git.example.com/owner/repo/pull/123
 ```
 
-When the URL refers to a different repo than the current working directory, no checkout is attempted. The right/head diff buffer is read-only, but comments, suggestions, and review submission all work normally.
+PR URLs can use the GitHub.com host or a GitHub Enterprise host. The plugin routes API requests to the host in the URL or Git remote. When the URL refers to a different repo than the current working directory, no checkout is attempted. The right/head diff buffer is read-only, but comments, suggestions, and review submission all work normally.
 
 ## Quick start
 

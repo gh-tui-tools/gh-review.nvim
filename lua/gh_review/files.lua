@@ -22,7 +22,8 @@ local function render()
   local lines = {}
   local pr_title = state.get_pr_title()
   local pr_number = state.get_pr_number()
-  local pr_url = string.format("https://github.com/%s/%s/pull/%d", state.get_owner(), state.get_name(), pr_number)
+  local pr_url = string.format("https://%s/%s/%s/pull/%d",
+    state.get_host(), state.get_owner(), state.get_name(), pr_number)
   lines[#lines + 1] = string.format("%s: %s", pr_url, pr_title)
   lines[#lines + 1] = string.format("Files changed (%d)", #files)
   lines[#lines + 1] = ""

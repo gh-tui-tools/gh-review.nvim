@@ -34,11 +34,17 @@ local function setup_push_tracking(local_branch)
       -- Add remote, matching origin's protocol (SSH vs HTTPS).
       local origin_obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
       local origin_url = vim.trim(origin_obj.stdout or "")
+      -- Derive the hosting service from origin so fork remotes stay on that host.
+      local host = state.get_host()
       local fork_url
-      if origin_url:match("^git@") then
-        fork_url = string.format("git@github.com:%s/%s.git", head_owner, head_name)
+      if host == "" then
+        vim.notify("[gh-review] Could not determine Git host for fork remote", vim.log.levels.WARN)
+        return
+      end
+      if origin_url:match("^git@") or origin_url:match("^ssh://") then
+        fork_url = string.format("git@%s:%s/%s.git", host, head_owner, head_name)
       else
-        fork_url = string.format("https://github.com/%s/%s.git", head_owner, head_name)
+        fork_url = string.format("https://%s/%s/%s.git", host, head_owner, head_name)
       end
       local add_obj = vim.system({ "git", "remote", "add", remote, fork_url }, { text = true }):wait()
       if add_obj.code ~= 0 then
@@ -115,21 +121,25 @@ function M.open(pr_number_str)
   local pr_number
   local url_owner = ""
   local url_name = ""
+  local url_host = ""
 
   if pr_number_str == "" then
     print("Detecting PR for current branch...")
-    local obj = vim.system(
-      { "gh", "pr", "view", "--json", "number", "-q", ".number" },
-      { text = true }):wait()
+    if not state.get_repo_info() then return end
+    local repo = state.get_host() .. "/" .. state.get_owner() .. "/" .. state.get_name()
+    local obj = vim.system({
+      "gh", "pr", "view", "--repo", repo, "--json", "number", "-q", ".number",
+    }, { text = true }):wait()
     if obj.code ~= 0 or vim.trim(obj.stdout or "") == "" then
       vim.notify("[gh-review] No PR found for the current branch", vim.log.levels.ERROR)
       return
     end
     pr_number = tonumber(vim.trim(obj.stdout))
   else
-    -- Accept a full GitHub PR URL or a plain number
-    local o, n, num = pr_number_str:match("github%.com/([^/]+)/([^/]+)/pull/(%d+)")
-    if o then
+    -- Accept a full pull request URL from any host or a plain number.
+    local host, o, n, num = pr_number_str:match("^https?://([^/]+)/([^/]+)/([^/]+)/pull/(%d+)")
+    if host then
+      url_host = host
       url_owner = o
       url_name = n
       pr_number = tonumber(num)
@@ -146,7 +156,7 @@ function M.open(pr_number_str)
   -- Determine repo and whether checkout is possible.
   local should_checkout = false
   if url_owner ~= "" then
-    state.set_repo_info(url_owner, url_name)
+    state.set_repo_info(url_owner, url_name, url_host)
     should_checkout = is_local_repo(url_owner, url_name)
   else
     if not state.get_repo_info() then return end
