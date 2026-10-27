@@ -1,20 +1,12 @@
 -- Tests for URL parsing and argument handling in open().
 
 local h = require("test.helpers")
+local url = require("gh_review.url")
 
--- Helper: given a string argument, return a table with owner, name, number
--- using the same parsing logic as open().
-local function parse_pr_url(arg)
-  local o, n, num = arg:match("github%.com/([^/]+)/([^/]+)/pull/(%d+)")
-  if o then
-    return { owner = o, name = n, number = tonumber(num) }
-  else
-    return { owner = "", name = "", number = tonumber(arg) or 0 }
-  end
-end
+local parse_pr_url = url.parse_pr_arg
 
 local function parse_pr_number(arg)
-  return parse_pr_url(arg).number
+  return parse_pr_url(arg).number or 0
 end
 
 h.run_test("Parse plain number", function()
@@ -77,6 +69,25 @@ h.run_test("Parse URL with commits tab and SHA", function()
   h.assert_equal("mdn", result.owner)
   h.assert_equal("content", result.name)
   h.assert_equal(42276, result.number)
+end)
+
+h.run_test("Parse GitHub Enterprise PR URL", function()
+  local result = parse_pr_url("https://git.example.com/team/project/pull/7/files")
+  h.assert_equal("git.example.com", result.host)
+  h.assert_equal("team", result.owner)
+  h.assert_equal("project", result.name)
+  h.assert_equal(7, result.number)
+end)
+
+h.run_test("Parse PR URL without a scheme", function()
+  local result = parse_pr_url("github.com/owner/repo/pull/42")
+  h.assert_equal("github.com", result.host)
+  h.assert_equal("owner", result.owner)
+  h.assert_equal(42, result.number)
+end)
+
+h.run_test("Plain number has empty host", function()
+  h.assert_equal("", parse_pr_url("123").host)
 end)
 
 h.write_results("/tmp/gh_review_test_open.txt")
