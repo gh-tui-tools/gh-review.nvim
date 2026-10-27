@@ -101,9 +101,13 @@ A quick-start sequence for either workflow: >
 
 :GHReview {number}      Open a pull request by number.
 
-:GHReview {url}         Open a pull request by GitHub URL.  If the URL’s
-                        repo matches the local `origin` remote, the checkout
-                        workflow is used; otherwise the no-checkout workflow.
+:GHReview {url}         Open a pull request by URL, on github.com or on a
+                        GitHub Enterprise host.  If the URL’s repo matches the
+                        local `origin` remote, the checkout workflow is used;
+                        otherwise the no-checkout workflow.
+
+                        With a PR number or no argument, API requests go to
+                        the host of the `origin` remote.
 
                         See |gh-review-workflows| for details on when the
                         branch is checked out and when it is not.
