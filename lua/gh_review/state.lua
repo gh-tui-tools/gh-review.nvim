@@ -224,7 +224,7 @@ end
 function M.set_repo_info(owner, name, host)
   repo_owner = owner
   repo_name = name
-  repo_host = host or ""
+  repo_host = host or "github.com"
 end
 
 -- ------- Participants -------
