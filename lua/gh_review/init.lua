@@ -125,11 +125,9 @@ function M.open(pr_number_str)
 
   if pr_number_str == "" then
     print("Detecting PR for current branch...")
-    if not state.get_repo_info() then return end
-    local repo = state.get_host() .. "/" .. state.get_owner() .. "/" .. state.get_name()
-    local obj = vim.system({
-      "gh", "pr", "view", "--repo", repo, state.get_head_ref(), "--json", "number", "-q", ".number",
-    }, { text = true }):wait()
+    local obj = vim.system(
+      { "gh", "pr", "view", "--json", "number", "-q", ".number" },
+      { text = true }):wait()
     if obj.code ~= 0 or vim.trim(obj.stdout or "") == "" then
       vim.notify("[gh-review] No PR found for the current branch", vim.log.levels.ERROR)
       return
