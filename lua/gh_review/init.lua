@@ -7,14 +7,18 @@ local files = require("gh_review.files")
 local diff = require("gh_review.diff")
 local thread = require("gh_review.thread")
 local config = require("gh_review.config")
+local url = require("gh_review.url")
 
 local M = {}
 
-local function is_local_repo(owner, name)
+local function is_local_repo(owner, name, host)
   local obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
   if obj.code ~= 0 then return false end
-  local remote = vim.trim(obj.stdout or "")
-  return remote:find(owner .. "/" .. name, 1, true) ~= nil
+  local info = url.parse_remote(vim.trim(obj.stdout or ""))
+  return info ~= nil
+    and info.owner:lower() == owner:lower()
+    and info.name:lower() == name:lower()
+    and url.web_host(info) == host
 end
 
 local function setup_push_tracking(local_branch)
@@ -31,20 +35,15 @@ local function setup_push_tracking(local_branch)
     remote = head_owner
     local obj = vim.system({ "git", "remote", "get-url", remote }, { text = true }):wait()
     if obj.code ~= 0 then
-      -- Add remote, matching origin's protocol (SSH vs HTTPS).
+      -- Add remote at origin's URL with the repo swapped for the fork -- so it
+      -- keeps origin's protocol, host, port, and SSH user.
       local origin_obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
       local origin_url = vim.trim(origin_obj.stdout or "")
-      -- Derive the hosting service from origin so fork remotes stay on that host.
-      local host = state.get_host()
-      local fork_url
-      if host == "" then
-        vim.notify("[gh-review] Could not determine Git host for fork remote", vim.log.levels.WARN)
+      local fork_url = url.fork_url(origin_url, repo_owner, state.get_name(), head_owner, head_name)
+      if not fork_url then
+        vim.notify(string.format("[gh-review] Could not derive a URL for fork %s from origin", remote),
+          vim.log.levels.WARN)
         return
-      end
-      if origin_url:match("^git@") or origin_url:match("^ssh://") then
-        fork_url = string.format("git@%s:%s/%s.git", host, head_owner, head_name)
-      else
-        fork_url = string.format("https://%s/%s/%s.git", host, head_owner, head_name)
       end
       local add_obj = vim.system({ "git", "remote", "add", remote, fork_url }, { text = true }):wait()
       if add_obj.code ~= 0 then
@@ -134,16 +133,12 @@ function M.open(pr_number_str)
     end
     pr_number = tonumber(vim.trim(obj.stdout))
   else
-    -- Accept a full pull request URL from any host or a plain number.
-    local host, o, n, num = pr_number_str:match("^https?://([^/]+)/([^/]+)/([^/]+)/pull/(%d+)")
-    if host then
-      url_host = host
-      url_owner = o
-      url_name = n
-      pr_number = tonumber(num)
-    else
-      pr_number = tonumber(pr_number_str)
-    end
+    -- Accept a PR URL from any host, or a plain number.
+    local arg = url.parse_pr_arg(pr_number_str)
+    url_host = arg.host
+    url_owner = arg.owner
+    url_name = arg.name
+    pr_number = arg.number
   end
 
   if not pr_number or pr_number <= 0 then
@@ -155,7 +150,7 @@ function M.open(pr_number_str)
   local should_checkout = false
   if url_owner ~= "" then
     state.set_repo_info(url_owner, url_name, url_host)
-    should_checkout = is_local_repo(url_owner, url_name)
+    should_checkout = is_local_repo(url_owner, url_name, url_host)
   else
     if not state.get_repo_info() then return end
     should_checkout = true

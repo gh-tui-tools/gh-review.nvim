@@ -1,5 +1,7 @@
 -- PR state management.  Holds all data for the currently active review.
 
+local url = require("gh_review.url")
+
 local M = {}
 
 -- Namespace for extmarks (signs, virtual text)
@@ -198,23 +200,12 @@ function M.get_repo_info()
   end
   local remote = vim.trim(obj.stdout or "")
 
-  local host, path = remote:match("^[%w+.-]+://([^/]+)/(.+)$")
-  if not host then
-    host, path = remote:match("^[^@/]+@([^:/]+):(.+)$")
-  end
-  if not host then
-    host, path = remote:match("^([^:/]+):(.+)$")
-  end
-  if host and path then
-    -- SSH URLs can include a username in their authority.
-    host = host:gsub("^.*@", "")
-    local owner, name = path:match("^([^/]+)/([^/]+)")
-    if owner and name then
-      repo_owner = owner
-      repo_name = name:gsub("%.git$", "")
-      repo_host = host
-      return true
-    end
+  local info = url.parse_remote(remote)
+  if info then
+    repo_owner = info.owner
+    repo_name = info.name
+    repo_host = url.web_host(info)
+    return true
   end
 
   vim.notify("[gh-review] Could not parse Git remote URL: " .. remote, vim.log.levels.ERROR)
