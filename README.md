@@ -146,7 +146,9 @@ Typically used by a non-maintainer reviewer who only needs to read the diff and 
 
 When the URL refers to a different repo than the current working directory, no checkout is attempted. The right/head diff buffer is read-only, but comments, suggestions, and review submission all work normally.
 
-GitHub Enterprise hosts work in both workflows: The plugin sends its API requests to the host in the PR URL — or, for a PR number or the current branch, to the host of the `origin` remote.
+GitHub Enterprise hosts work in both workflows: The plugin sends its API requests to the host in the PR URL — or, for a PR number or the current branch, to the host of the clone’s base repo.
+
+A PR number refers to a PR in the clone’s base repo — the same repo `gh pr list` and `gh pr view` use. That’s the remote that `gh repo set-default` chose, if any; otherwise `upstream`, `github`, or `origin`, in that order. So in a clone of a fork, PR numbers refer to the parent repo’s PRs.
 
 ## Quick start
 

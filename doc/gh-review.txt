@@ -99,15 +99,19 @@ A quick-start sequence for either workflow: >
 :GHReview               With no argument, detect the PR from the current
                         branch via `gh pr view`.
 
-:GHReview {number}      Open a pull request by number.
+:GHReview {number}      Open a pull request by number, in the clone’s base
+                        repo: the remote that `gh repo set-default` chose,
+                        if any; otherwise `upstream`, `github`, or `origin`,
+                        in that order.  That’s the repo `gh pr view` uses —
+                        so in a clone of a fork, it’s the parent repo.
 
 :GHReview {url}         Open a pull request by URL, on github.com or on a
-                        GitHub Enterprise host.  If the URL’s repo matches the
-                        local `origin` remote, the checkout workflow is used;
-                        otherwise the no-checkout workflow.
+                        GitHub Enterprise host.  If one of the clone’s
+                        remotes points at the URL’s repo, the checkout
+                        workflow is used; otherwise the no-checkout workflow.
 
                         With a PR number or no argument, API requests go to
-                        the host of the `origin` remote.
+                        the host of the base repo.
 
                         See |gh-review-workflows| for details on when the
                         branch is checked out and when it is not.

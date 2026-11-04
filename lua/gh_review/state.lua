@@ -1,6 +1,7 @@
 -- PR state management.  Holds all data for the currently active review.
 
 local url = require("gh_review.url")
+local remotes = require("gh_review.remotes")
 
 local M = {}
 
@@ -38,6 +39,8 @@ local merge_base_oid = ""
 local repo_owner = ""
 local repo_name = ""
 local repo_host = ""
+-- The local remote that points at the repo, or "" if none does
+local repo_remote = ""
 
 -- Changed files: list of tables with path, additions, deletions, changeType
 local changed_files = {}
@@ -85,6 +88,7 @@ function M.set_merge_base_oid(oid) merge_base_oid = oid end
 function M.get_owner() return repo_owner end
 function M.get_name() return repo_name end
 function M.get_host() return repo_host end
+function M.get_remote() return repo_remote end
 
 function M.get_changed_files() return changed_files end
 
@@ -192,30 +196,32 @@ end
 
 -- ------- Repo detection -------
 
+-- Set the repo from the clone's base remote (see remotes.pick_base()).
 function M.get_repo_info()
-  local obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
-  if obj.code ~= 0 then
-    vim.notify("[gh-review] Not in a git repository or no origin remote", vim.log.levels.ERROR)
+  local base = remotes.pick_base(remotes.list())
+  if not base then
+    vim.notify("[gh-review] Not in a git repository or no remotes", vim.log.levels.ERROR)
     return false
   end
-  local remote = vim.trim(obj.stdout or "")
 
-  local info = url.parse_remote(remote)
+  local info = url.parse_remote(base.url)
   if info then
     repo_owner = info.owner
     repo_name = info.name
     repo_host = url.web_host(info)
+    repo_remote = base.name
     return true
   end
 
-  vim.notify("[gh-review] Could not parse Git remote URL: " .. remote, vim.log.levels.ERROR)
+  vim.notify("[gh-review] Could not parse Git remote URL: " .. base.url, vim.log.levels.ERROR)
   return false
 end
 
-function M.set_repo_info(owner, name, host)
+function M.set_repo_info(owner, name, host, remote)
   repo_owner = owner
   repo_name = name
   repo_host = host or "github.com"
+  repo_remote = remote or ""
 end
 
 -- ------- Participants -------
@@ -256,6 +262,7 @@ function M.reset()
   repo_owner = ""
   repo_name = ""
   repo_host = ""
+  repo_remote = ""
   changed_files = {}
   checked_files = {}
   threads = {}

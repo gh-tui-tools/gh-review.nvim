@@ -8,41 +8,32 @@ local diff = require("gh_review.diff")
 local thread = require("gh_review.thread")
 local config = require("gh_review.config")
 local url = require("gh_review.url")
+local remotes = require("gh_review.remotes")
 
 local M = {}
-
-local function is_local_repo(owner, name, host)
-  local obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
-  if obj.code ~= 0 then return false end
-  local info = url.parse_remote(vim.trim(obj.stdout or ""))
-  return info ~= nil
-    and info.owner:lower() == owner:lower()
-    and info.name:lower() == name:lower()
-    and url.web_host(info) == host
-end
 
 local function setup_push_tracking(local_branch)
   local head_owner = state.get_head_repo_owner()
   local head_name = state.get_head_repo_name()
   local head_branch = state.get_head_ref()
-  local repo_owner = state.get_owner()
+  local base_remote = state.get_remote()
 
-  local remote
-  if head_owner == repo_owner then
-    remote = "origin"
-  else
+  -- Push to the remote that already points at the head repo, if any: the base
+  -- remote for a same-repo PR, or (in a clone of a fork) the fork's own remote.
+  local remote = remotes.find(remotes.list(), state.get_host(), head_owner, head_name)
+  if not remote then
     -- Fork PR -- ensure a remote exists for the fork.
     remote = head_owner
     local obj = vim.system({ "git", "remote", "get-url", remote }, { text = true }):wait()
     if obj.code ~= 0 then
-      -- Add remote at origin's URL with the repo swapped for the fork -- so it
-      -- keeps origin's protocol, host, port, and SSH user.
-      local origin_obj = vim.system({ "git", "remote", "get-url", "origin" }, { text = true }):wait()
-      local origin_url = vim.trim(origin_obj.stdout or "")
-      local fork_url = url.fork_url(origin_url, repo_owner, state.get_name(), head_owner, head_name)
+      -- Add a remote at the base remote's URL with the repo swapped for the fork,
+      -- so it keeps that URL's protocol, host, port, and SSH user.
+      local base_obj = vim.system({ "git", "remote", "get-url", base_remote }, { text = true }):wait()
+      local base_url = vim.trim(base_obj.stdout or "")
+      local fork_url = url.fork_url(base_url, state.get_owner(), state.get_name(), head_owner, head_name)
       if not fork_url then
-        vim.notify(string.format("[gh-review] Could not derive a URL for fork %s from origin", remote),
-          vim.log.levels.WARN)
+        vim.notify(string.format("[gh-review] Could not derive a URL for fork %s from remote %s",
+          remote, base_remote), vim.log.levels.WARN)
         return
       end
       local add_obj = vim.system({ "git", "remote", "add", remote, fork_url }, { text = true }):wait()
@@ -71,12 +62,13 @@ local function fetch_merge_base(callback)
   local name = state.get_name()
   local base = state.get_base_ref()
   local head = state.get_head_ref()
+  local remote = state.get_remote()
 
   -- Try local git merge-base first
-  local obj = vim.system({ "git", "merge-base",
-    "origin/" .. base, "origin/" .. head }, { text = true }):wait()
+  local obj = remote ~= "" and vim.system({ "git", "merge-base",
+    remote .. "/" .. base, remote .. "/" .. head }, { text = true }):wait()
 
-  if obj.code == 0 and vim.trim(obj.stdout or "") ~= "" then
+  if obj and obj.code == 0 and vim.trim(obj.stdout or "") ~= "" then
     state.set_merge_base_oid(vim.trim(obj.stdout))
     callback()
     return
@@ -149,8 +141,9 @@ function M.open(pr_number_str)
   -- Determine repo and whether checkout is possible.
   local should_checkout = false
   if url_owner ~= "" then
-    state.set_repo_info(url_owner, url_name, url_host)
-    should_checkout = is_local_repo(url_owner, url_name, url_host)
+    local remote = remotes.find(remotes.list(), url_host, url_owner, url_name)
+    state.set_repo_info(url_owner, url_name, url_host, remote)
+    should_checkout = remote ~= nil
   else
     if not state.get_repo_info() then return end
     should_checkout = true
@@ -207,7 +200,7 @@ function M.open(pr_number_str)
         end
 
         local fetch_ref = string.format("pull/%d/head", pr_number)
-        api_mod.run_cmd_async({ "git", "fetch", "origin", fetch_ref }, function(_, fe, fetch_exit)
+        api_mod.run_cmd_async({ "git", "fetch", state.get_remote(), fetch_ref }, function(_, fe, fetch_exit)
           if fetch_exit ~= 0 then
             vim.notify("[gh-review] Could not fetch PR branch: " .. vim.trim(fe), vim.log.levels.WARN)
             state.set_local_checkout(false)
