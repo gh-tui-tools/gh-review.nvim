@@ -337,13 +337,19 @@ Three paths depending on context:
 
 #### Editing and deleting comments
 
-`build_lines()` records the line range of every rendered comment in `comment_ranges`, so `ge`/`gD` find the comment under the cursor. Permission comes from the comment’s `viewerCanUpdate`/`viewerCanDelete` fields rather than its author, because anyone with write access can change other people’s comments.
+`build_lines()` records the line range of every rendered comment in `comment_ranges`, so `ge`/`gD` find the comment under the cursor. Permission comes from the `viewerCanUpdate`/`viewerCanDelete` fields of the comment, not from its author, because anyone with write access can change comments by other people.
 
-Edit mode is module state (`editing`, holding the comment’s id, original body and author). While it is set, the separator reads `── Editing <author>'s comment (...) ──` and `submit_reply()` sends `updatePullRequestReviewComment` instead of a reply. Edit mode ends when the buffer closes or after a successful save.
+Edit mode is module state (`editing`, which holds the id, original body, and author of the comment). While it is set, the separator reads `── Editing <author>'s comment (...) ──` and `submit_reply()` sends `updatePullRequestReviewComment` instead of a reply. Edit mode ends when the buffer closes or after a successful save.
 
-After `deletePullRequestReviewComment` or a successful edit, `refresh_threads(on_done)` fetches the threads again and `redraw()` re-renders the buffer in place. The delete payload does not include the thread, and GitHub does not document what happens to a thread when its root comment goes, so the plugin always refetches rather than patching state locally. `redraw()` keeps unsent text below the separator, drops edit mode if the edited comment is gone, and closes the buffer when the thread has no comments left.
+After `deletePullRequestReviewComment` or a successful edit, `refresh_threads(on_done)` fetches the threads again and `redraw()` redraws the buffer in place. The delete payload does not include the thread. GitHub does not document what happens to a thread when its root comment is deleted. Thus the plugin always fetches the threads again and does not patch the state locally.
 
-The pending review is tracked from the server, not from the plugin's own calls. GitHub opens one implicitly when a thread is created without `:GHReviewStart`, and removes it when its last comment is deleted. So `submit_new_thread()` adopts the review returned with the new comment, and every `refresh_threads()` re-reads `reviews(states: PENDING)` through `state.sync_pending_review()`.
+`redraw()`:
+
+- keeps unsent text below the separator
+- ends edit mode if the edited comment is deleted
+- closes the buffer if the thread has no comments
+
+The plugin tracks the pending review from the server, not from its own calls. If you create a thread without `:GHReviewStart`, GitHub opens a pending review. When you delete the last comment of that review, GitHub removes the review. Thus `submit_new_thread()` adopts the review that GitHub returns with the new comment. Every `refresh_threads()` call reads `reviews(states: PENDING)` again through `state.sync_pending_review()`.
 
 #### @-mention completion
 

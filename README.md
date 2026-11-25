@@ -214,8 +214,9 @@ gF                      Jump to the file with LSP (checkout only)
 | `Ctrl-X Ctrl-O` | Complete `@`-mention from thread participants |
 
 `ge` loads the comment into the reply area and `Ctrl-S` saves it. `gD` asks
-for confirmation first. Both work only on comments GitHub lets you change:
-your own, or anyone’s if you have write access to the repo. Edited comments
+for confirmation first. Both work only on comments that GitHub lets you
+change: your own, or anyone’s if you have write access to the repository.
+Edited comments
 show `(date, edited)` after the author.
 
 ## Signs and virtual text
