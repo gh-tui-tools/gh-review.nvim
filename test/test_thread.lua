@@ -1073,4 +1073,73 @@ h.run_test("Edit: a late confirmation after the buffer closed does nothing", fun
   close_thread()
 end)
 
+-- A fake GitHub holding the two rules the bug report showed: a thread created
+-- without a review lands in an implicit pending review, and a second pending
+-- review is refused.
+local function with_fake_github(fn)
+  local api = require("gh_review.api")
+  local graphql = require("gh_review.graphql")
+  local orig_graphql, orig_run, orig_notify = api.graphql, api.run_async, vim.notify
+  local gh = { pending = nil, errors = {}, sent = {} }
+  local function fail(cb, msg)
+    gh.errors[#gh.errors + 1] = msg
+    cb(nil, "GraphQL error: gh: " .. msg)
+  end
+  api.graphql = function(query, vars, cb)
+    gh.sent[#gh.sent + 1] = { query = query, vars = vars }
+    if query == graphql.MUTATION_ADD_REVIEW_THREAD then
+      gh.pending = gh.pending or vars.pullRequestReviewId or "implicit_rev"
+      cb({ data = { addPullRequestReviewThread = { thread = {
+        id = "new_thread", isResolved = false, line = vars.line, diffSide = vars.side, path = vars.path,
+        comments = { nodes = { { id = "new_c1", body = vars.body, author = { login = "me" },
+          createdAt = "2025-02-01T00:00:00Z", viewerCanUpdate = true, viewerCanDelete = true,
+          pullRequestReview = { id = gh.pending, state = "PENDING" } } } },
+      } } } })
+    elseif query == graphql.MUTATION_START_REVIEW then
+      if gh.pending then return fail(cb, "User can only have one pending review per pull request") end
+      gh.pending = "explicit_rev"
+      cb({ data = { addPullRequestReview = { pullRequestReview = { id = gh.pending, state = "PENDING" } } } })
+    elseif query == graphql.MUTATION_ADD_REVIEW_COMMENT then
+      if vars.pullRequestReviewId ~= gh.pending then return fail(cb, "review is not pending") end
+      cb({ data = { addPullRequestReviewComment = { comment = { id = "new_c2" } } } })
+    else
+      cb({ data = {} })
+    end
+  end
+  -- REST replies can't target a comment that is still pending.
+  api.run_async = function(_, cb) cb("", "gh: Not Found (HTTP 404)") end
+  vim.notify = function() end
+  local ok, err = pcall(fn, gh)
+  api.graphql, api.run_async, vim.notify = orig_graphql, orig_run, orig_notify
+  if not ok then error(err, 0) end
+  return gh
+end
+
+h.run_test("Reply: replying to a thread created without a started review joins its pending review", function()
+  thread.close_thread_buffer()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_pending_review_id("") -- opened with :GHReview, no review started
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+
+  local gh = with_fake_github(function()
+    thread.open_new("src/new_file.ts", 3, 3, "RIGHT", "Add a new comment")
+    press("<C-S>")
+    thread.open("new_thread")
+    set_reply("Second comment")
+    press("<C-S>")
+  end)
+
+  h.assert_equal(0, #gh.errors, "GitHub errors: " .. table.concat(gh.errors, "; "))
+  local graphql = require("gh_review.graphql")
+  local reply = vim.iter(gh.sent):find(function(c) return c.query == graphql.MUTATION_ADD_REVIEW_COMMENT end)
+  h.assert_true(reply ~= nil, "reply sent as a review comment")
+  h.assert_equal("Second comment", reply.vars.body)
+  h.assert_equal("implicit_rev", reply.vars.pullRequestReviewId, "reply joins the pending review")
+  h.assert_true(state.is_review_active(), "pending review known, so :GHReviewSubmit submits it")
+
+  close_thread()
+end)
+
 h.write_results("/tmp/gh_review_test_thread.txt")

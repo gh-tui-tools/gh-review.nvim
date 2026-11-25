@@ -272,6 +272,14 @@ local function submit_new_thread(body, bufnr)
   api_mod.graphql(graphql.MUTATION_ADD_REVIEW_THREAD, vars, function(result)
     local new_thread = ((((result or {}).data or {}).addPullRequestReviewThread or {}).thread or {})
     if new_thread and new_thread.id then
+      -- Without a review id GitHub files the thread under an implicit pending
+      -- review. Adopt it, or replies and :GHReviewSubmit would try to start a
+      -- second one, which GitHub refuses.
+      local first = state.get(state.get(new_thread, "comments", {}), "nodes", {})[1] or {}
+      local review = state.get(first, "pullRequestReview", {})
+      if not state.is_review_active() and state.get(review, "state", "") == "PENDING" then
+        state.set_pending_review_id(review.id)
+      end
       state.set_thread(new_thread.id, new_thread)
       require("gh_review.diff").refresh_signs()
       print("Comment submitted")

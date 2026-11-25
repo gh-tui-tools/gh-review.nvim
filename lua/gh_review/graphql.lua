@@ -182,6 +182,10 @@ M.MUTATION_ADD_REVIEW_THREAD = [[
             viewerCanUpdate
             viewerCanDelete
             lastEditedAt
+            pullRequestReview {
+              id
+              state
+            }
           }
         }
       }
