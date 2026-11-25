@@ -74,6 +74,8 @@ require("gh_review").setup({
     thread = {
       submit       = "<C-s>",
       resolve      = "<C-r>",
+      edit         = "ge",
+      delete       = "gD",
       close        = "q",
       close_insert = "<C-q>",
     },
@@ -205,9 +207,16 @@ gF                      Jump to the file with LSP (checkout only)
 |----------|-----------------------------------------------|
 | `Ctrl-S` | Submit the reply                              |
 | `Ctrl-R` | Toggle resolved/unresolved                    |
+| `ge`     | Edit the comment under the cursor             |
+| `gD`     | Delete the comment under the cursor           |
 | `q`      | Close the thread buffer                       |
 | `Ctrl-Q` | Close the thread buffer (works in insert mode)|
 | `Ctrl-X Ctrl-O` | Complete `@`-mention from thread participants |
+
+`ge` loads the comment into the reply area and `Ctrl-S` saves it. `gD` asks
+for confirmation first. Both work only on comments GitHub lets you change:
+your own, or anyone’s if you have write access to the repo. Edited comments
+show `(date, edited)` after the author.
 
 ## Signs and virtual text
 
