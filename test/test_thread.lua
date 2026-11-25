@@ -623,7 +623,11 @@ local function with_stubs(opts, fn)
   api.graphql = function(query, vars, callback)
     if query == graphql.QUERY_REVIEW_THREADS then
       calls[#calls + 1] = { kind = "refresh", vars = vars }
-      callback({ data = { repository = { pullRequest = { reviewThreads = { nodes = opts.threads or {} } } } } })
+      local respond = function()
+        callback({ data = { repository = { pullRequest = { reviewThreads = { nodes = opts.threads or {} } } } } })
+      end
+      -- defer_refresh leaves the refresh in flight for the test to resolve.
+      if opts.defer_refresh then calls.finish_refresh = respond else respond() end
     else
       calls[#calls + 1] = { kind = "mutation", query = query, vars = vars }
       local m = opts.mutation or {}
@@ -632,7 +636,8 @@ local function with_stubs(opts, fn)
   end
   vim.ui.select = function(items, select_opts, on_choice)
     calls.prompts[#calls.prompts + 1] = select_opts.prompt
-    on_choice(opts.answer)
+    -- defer_select mimics pickers that answer after the call returns.
+    if opts.defer_select then calls.answer = on_choice else on_choice(opts.answer) end
   end
   vim.notify = function(msg) calls.notifications[#calls.notifications + 1] = msg end
   local ok, err = pcall(fn)
@@ -1020,6 +1025,50 @@ h.run_test("Edited marker: shown only on comments with lastEditedAt", function()
 
   h.assert_match("\nalice %(2025%-01%-15, edited%):\n", buf_text())
   h.assert_match("\nbob %(2025%-01%-15%):\n", buf_text(), "unedited comment has no marker")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a late save refresh leaves a newer edit alone", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+  local calls = with_stubs({
+    defer_refresh = true,
+    mutation = { result = { data = { updatePullRequestReviewComment = {} } } },
+    threads = threads_with_body("comment_3", "Done, thanks"),
+  }, function() press("<C-S>") end)
+
+  -- Before the refresh returns, move on to editing another thread.
+  thread.close_thread_buffer()
+  thread.open("thread_1")
+  cursor_to("^  Looks good")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Looks great")
+
+  calls.finish_refresh()
+
+  h.assert_match("Editing alice's comment", buf_text(), "newer edit still in edit mode")
+  h.assert_equal("Looks great", reply_area(), "newer edit text kept")
+  local save = with_stubs({ mutation = { result = { data = {} } } }, function() press("<C-S>") end)
+  h.assert_equal("comment_1", save[1].vars.pullRequestReviewCommentId, "Ctrl-S still saves an edit, not a reply")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a late confirmation after the buffer closed does nothing", function()
+  open_thread("thread_2")
+  set_reply("my draft")
+  cursor_to("^  Done")
+  local calls = with_stubs({ defer_select = true }, function() press("ge") end)
+
+  thread.close_thread_buffer()
+  calls.answer("Yes")
+
+  h.assert_equal(-1, state.get_thread_bufnr(), "no buffer resurrected")
+  thread.open("thread_2")
+  h.assert_match("Reply below", buf_text(), "no stale edit mode")
 
   close_thread()
 end)

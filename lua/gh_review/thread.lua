@@ -381,8 +381,16 @@ local function submit_edit(body, bufnr)
     if editing and editing.id == comment_id then editing.body = body end
     print("Comment saved")
     require("gh_review").refresh_threads(function()
-      editing = nil
-      redraw(thread_id, comment_id, nil, "")
+      -- The user may have moved on to another edit, or another thread, while
+      -- the save was in flight; only end the edit that was saved.
+      local bufnr_now = state.get_thread_bufnr()
+      if editing and editing.id == comment_id and bufnr_now ~= -1
+          and vim.b[bufnr_now].gh_review_thread_id == thread_id then
+        editing = nil
+        redraw(thread_id, comment_id, nil, "")
+      else
+        redraw(thread_id, comment_id)
+      end
     end)
   end)
 end
@@ -481,10 +489,16 @@ local function edit_comment()
     return
   end
 
+  local thread_id = vim.b[bufnr].gh_review_thread_id
   confirm_discard(bufnr, function()
+    -- Pickers can answer after the buffer was closed or replaced.
+    if state.get_thread_bufnr() ~= bufnr or vim.fn.bufexists(bufnr) == 0
+        or vim.b[bufnr].gh_review_thread_id ~= thread_id then
+      return
+    end
     local body = state.get(comment, "body", "")
     editing = { id = comment.id, body = body, author = author_of(comment) }
-    local reply_start = render(bufnr, state.get_thread(vim.b[bufnr].gh_review_thread_id), normalize_body(body))
+    local reply_start = render(bufnr, state.get_thread(thread_id), normalize_body(body))
     local winid = vim.fn.bufwinid(bufnr)
     if winid ~= -1 then
       vim.api.nvim_win_set_cursor(winid, { math.min(reply_start + 1, vim.api.nvim_buf_line_count(bufnr)), 0 })
