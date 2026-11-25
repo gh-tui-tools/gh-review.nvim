@@ -46,6 +46,9 @@ M.QUERY_PR_DETAILS = [[
                   login
                 }
                 createdAt
+                viewerCanUpdate
+                viewerCanDelete
+                lastEditedAt
                 pullRequestReview {
                   id
                   state
@@ -94,6 +97,9 @@ M.QUERY_REVIEW_THREADS = [[
                   login
                 }
                 createdAt
+                viewerCanUpdate
+                viewerCanDelete
+                lastEditedAt
                 pullRequestReview {
                   id
                   state
@@ -106,6 +112,12 @@ M.QUERY_REVIEW_THREADS = [[
                 }
               }
             }
+          }
+        }
+        reviews(first: 10, states: PENDING) {
+          nodes {
+            id
+            state
           }
         }
       }
@@ -173,6 +185,13 @@ M.MUTATION_ADD_REVIEW_THREAD = [[
               login
             }
             createdAt
+            viewerCanUpdate
+            viewerCanDelete
+            lastEditedAt
+            pullRequestReview {
+              id
+              state
+            }
           }
         }
       }
@@ -247,6 +266,26 @@ M.MUTATION_DELETE_REVIEW = [[
       pullRequestReview {
         id
         state
+      }
+    }
+  }
+]]
+
+M.MUTATION_UPDATE_COMMENT = [[
+  mutation($pullRequestReviewCommentId: ID!, $body: String!) {
+    updatePullRequestReviewComment(input: {pullRequestReviewCommentId: $pullRequestReviewCommentId, body: $body}) {
+      pullRequestReviewComment {
+        id
+      }
+    }
+  }
+]]
+
+M.MUTATION_DELETE_COMMENT = [[
+  mutation($id: ID!) {
+    deletePullRequestReviewComment(input: {id: $id}) {
+      pullRequestReview {
+        id
       }
     }
   }

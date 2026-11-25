@@ -330,8 +330,26 @@ Three paths depending on context:
 |----------|----------------------------------------------|
 | `Ctrl-S` | Submit reply (works in normal and insert mode) |
 | `Ctrl-R` | Toggle resolved/unresolved                   |
+| `ge`     | Edit the comment under the cursor            |
+| `gD`     | Delete the comment under the cursor          |
 | `q`      | Close thread buffer                          |
 | `Ctrl-Q` | Close thread buffer (works in insert mode)   |
+
+#### Editing and deleting comments
+
+`build_lines()` records the line range of every rendered comment in `comment_ranges`, so `ge`/`gD` find the comment under the cursor. Permission comes from the `viewerCanUpdate`/`viewerCanDelete` fields of the comment, not from its author, because anyone with write access can change comments by other people.
+
+Edit mode is module state (`editing`, which holds the id, original body, and author of the comment). While it is set, the separator reads `── Editing <author>'s comment (...) ──` and `submit_reply()` sends `updatePullRequestReviewComment` instead of a reply. Edit mode ends when the buffer closes or after a successful save.
+
+After `deletePullRequestReviewComment` or a successful edit, `refresh_threads(on_done)` fetches the threads again and `redraw()` redraws the buffer in place. The delete payload does not include the thread. GitHub does not document what happens to a thread when its root comment is deleted. Thus the plugin always fetches the threads again and does not patch the state locally.
+
+`redraw()`:
+
+- keeps unsent text below the separator
+- ends edit mode if the edited comment is deleted
+- closes the buffer if the thread has no comments
+
+The plugin tracks the pending review from the server, not from its own calls. If you create a thread without `:GHReviewStart`, GitHub opens a pending review. When you delete the last comment of that review, GitHub removes the review. Thus `submit_new_thread()` adopts the review that GitHub returns with the new comment. Every `refresh_threads()` call reads `reviews(states: PENDING)` again through `state.sync_pending_review()`.
 
 #### @-mention completion
 
@@ -376,7 +394,7 @@ Tests run in headless Neovim (`nvim --clean --headless`) and use a custom `run_t
 | `test_config.lua`     | Config defaults, merging, validation, keymap helpers, fold modes |
 | `test_diff_logic.lua` | Extmark placement, sign types, mtime tracking         |
 | `test_ui.lua`         | Files list rendering, toggle, close, keymaps          |
-| `test_thread.lua`     | Thread buffer rendering, metadata, close, omnifunc    |
+| `test_thread.lua`     | Thread buffer rendering, metadata, close, omnifunc, comment edit/delete |
 | `test_navigation.lua` | Extmark placement across sides, refresh, edge cases   |
 | `test_graphql.lua`    | GraphQL constant structure validation                 |
 | `test_open.lua`       | URL/number parsing                                    |

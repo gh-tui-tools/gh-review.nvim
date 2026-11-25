@@ -246,10 +246,38 @@ THREAD MAPPINGS ~
 
 CTRL-S                  Submit the reply text (below the separator line).
 CTRL-R                  Resolve or unresolve the thread.
+ge                      Edit the comment under the cursor.  Its body moves
+                        into the reply area and the separator reads
+                        "Editing <author>'s comment".  Then CTRL-S saves
+                        the edit and does not send a reply.
+gD                      Delete the comment under the cursor, after
+                        confirmation.
 q                       Close the thread buffer.
 CTRL-Q                  Close the thread buffer (works in insert mode too).
 
 The thread buffer uses |’buftype’| `acwrite`, so |:w| also submits the reply.
+
+EDITING AND DELETING COMMENTS ~
+                                                    *gh-review-edit-comment*
+
+`ge` and `gD` act on the comment whose lines hold the cursor.  They work only
+on comments that GitHub lets you change: your own, or anyone’s if you have
+write access to the repository.  Comments in your pending review work the
+same way.
+
+If text is already below the separator, `ge` asks before it discards that
+text.  The plugin does not save an empty body.  To remove the comment, use
+`gD`.  If the body did not change, the plugin sends nothing.
+
+After a successful edit or deletion, the plugin fetches the threads again.
+Then it redraws the buffer in place and keeps any unsent reply.  If you
+delete the comment that is in edit mode, the edit ends.  If the edit has
+unsaved changes, the confirmation tells you.  When you delete the last
+comment of a thread, the thread no longer exists.  Then the plugin closes
+the buffer.
+
+Edited comments show `(date, edited)` after the author, in the thread buffer
+and in the floating preview.
 
 @-MENTION COMPLETION ~
                                               *gh-review-thread-completion*
@@ -362,6 +390,8 @@ Defaults, by surface: >lua
     thread = {
       submit       = "<C-s>",
       resolve      = "<C-r>",
+      edit         = "ge",
+      delete       = "gD",
       close        = "q",
       close_insert = "<C-q>",
     },

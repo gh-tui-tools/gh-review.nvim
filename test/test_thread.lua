@@ -566,4 +566,625 @@ h.run_test("Thread: keymaps honour configuration", function()
   config.reset()
 end)
 
+-- Comment actions (edit/delete) ------------------------------------------
+
+-- Invoke a thread-buffer mapping's callback directly (avoids termcode
+-- feedkeys issues in headless mode).
+local function press(lhs)
+  local bufnr = state.get_thread_bufnr()
+  vim.fn.win_gotoid(vim.fn.bufwinid(bufnr))
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+    if m.lhs == lhs and m.callback then
+      m.callback()
+      return
+    end
+  end
+  error("no normal-mode mapping for " .. lhs .. " on thread buffer")
+end
+
+local function buf_text()
+  return table.concat(vim.api.nvim_buf_get_lines(state.get_thread_bufnr(), 0, -1, false), "\n")
+end
+
+-- Put the cursor on the first line matching `pattern`.
+local function cursor_to(pattern)
+  local bufnr = state.get_thread_bufnr()
+  for i, l in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+    if l:find(pattern) then
+      vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { i, 0 })
+      return i
+    end
+  end
+  error("no line matches " .. pattern)
+end
+
+local function cursor_line_text()
+  return vim.api.nvim_get_current_line()
+end
+
+-- Replace the reply area (everything after the blank line below the
+-- separator) with `text`.
+local function set_reply(text)
+  local bufnr = state.get_thread_bufnr()
+  local start = vim.b[bufnr].gh_review_reply_start
+  vim.bo[bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(bufnr, start, -1, false, vim.split(text, "\n"))
+end
+
+-- Run `fn` with api.graphql and vim.ui.select stubbed. `opts.mutation` is the
+-- canned (result, err) for the first non-refresh call; `opts.threads` is the
+-- thread list the follow-up refresh returns; `opts.answer` is the confirm
+-- choice. Returns every call made so tests can inspect variables.
+local function with_stubs(opts, fn)
+  local api = require("gh_review.api")
+  local graphql = require("gh_review.graphql")
+  local orig_graphql, orig_select, orig_notify = api.graphql, vim.ui.select, vim.notify
+  local calls = { prompts = {}, notifications = {} }
+  api.graphql = function(query, vars, callback)
+    if query == graphql.QUERY_REVIEW_THREADS then
+      calls[#calls + 1] = { kind = "refresh", vars = vars }
+      local respond = function()
+        callback({ data = { repository = { pullRequest = { reviewThreads = { nodes = opts.threads or {} } } } } })
+      end
+      -- defer_refresh leaves the refresh in flight for the test to resolve.
+      if opts.defer_refresh then calls.finish_refresh = respond else respond() end
+    else
+      calls[#calls + 1] = { kind = "mutation", query = query, vars = vars }
+      local m = opts.mutation or {}
+      callback(m.result, m.err)
+    end
+  end
+  vim.ui.select = function(items, select_opts, on_choice)
+    calls.prompts[#calls.prompts + 1] = select_opts.prompt
+    -- defer_select mimics pickers that answer after the call returns.
+    if opts.defer_select then calls.answer = on_choice else on_choice(opts.answer) end
+  end
+  vim.notify = function(msg) calls.notifications[#calls.notifications + 1] = msg end
+  local ok, err = pcall(fn)
+  api.graphql, vim.ui.select, vim.notify = orig_graphql, orig_select, orig_notify
+  if not ok then error(err, 0) end
+  return calls
+end
+
+-- Thread nodes with comment `id` removed from thread `thread_id`.
+local function threads_without(thread_id, id)
+  local nodes = fixtures.mock_thread_nodes()
+  for _, t in ipairs(nodes) do
+    if t.id == thread_id then
+      t.comments.nodes = vim.tbl_filter(function(c) return c.id ~= id end, t.comments.nodes)
+    end
+  end
+  return vim.tbl_filter(function(t) return #t.comments.nodes > 0 end, nodes)
+end
+
+local function open_thread(id)
+  -- A failed test can leave a modified thread buffer behind; don't let it
+  -- break the next test's setup.
+  thread.close_thread_buffer()
+  require("gh_review.config").reset()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+  thread.open(id)
+end
+
+local function close_thread()
+  thread.close_thread_buffer()
+  cleanup_diff_buffers()
+end
+
+h.run_test("Delete: gD deletes the comment under the cursor and redraws", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = { pullRequestReview = { id = "rev_2" } } } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  h.assert_equal("comment_3", calls[1].vars.id, "mutation targets the comment under the cursor")
+  h.assert_equal("refresh", calls[2].kind, "threads fetched again after delete")
+  h.assert_match("alice's comment", calls.prompts[1], "confirmation names the author")
+  h.assert_true(state.get_thread_bufnr() ~= -1, "buffer stays open")
+  h.assert_true(buf_text():find("Done") == nil, "deleted comment gone from the buffer")
+  h.assert_match("Fix this", buf_text(), "other comments kept")
+  h.assert_match("^bob", cursor_line_text(), "cursor lands on the comment that took its place")
+
+  close_thread()
+end)
+
+h.run_test("Delete: key follows configuration and can be disabled", function()
+  local config = require("gh_review.config")
+
+  open_thread("thread_2")
+  config.setup({ keymaps = { thread = { delete = "X" } } })
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  cursor_to("^  Done")
+  local calls = with_stubs({ answer = "No" }, function() press("X") end)
+  h.assert_equal(1, #calls.prompts, "remapped key deletes")
+  close_thread()
+
+  config.setup({ keymaps = { thread = { delete = false } } })
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  local ok = pcall(press, "gD")
+  h.assert_false(ok, "disabled action leaves no mapping")
+  close_thread()
+
+  config.reset()
+end)
+
+h.run_test("Delete: refused without permission, before any prompt or call", function()
+  open_thread("thread_2")
+  cursor_to("^  Fix this")
+
+  local calls = with_stubs({ answer = "Yes" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_equal(0, #calls.prompts, "no confirmation")
+  h.assert_match("can't delete", calls.notifications[1])
+  h.assert_match("Fix this", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Delete: declining the confirmation sends nothing", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({ answer = "No" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_match("Done", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Delete: cursor outside every comment does nothing", function()
+  open_thread("thread_2")
+  cursor_to("^Thread on")
+
+  local calls = with_stubs({ answer = "Yes" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_equal(0, #calls.prompts, "no confirmation")
+
+  close_thread()
+end)
+
+h.run_test("Delete: removing the only comment closes the buffer", function()
+  open_thread("thread_1")
+  cursor_to("^  Looks good")
+
+  with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_1", "comment_1"),
+  }, function() press("gD") end)
+
+  h.assert_equal(-1, state.get_thread_bufnr(), "thread buffer closed")
+  h.assert_true(next(state.get_thread("thread_1") or {}) == nil, "thread gone from state")
+
+  cleanup_diff_buffers()
+end)
+
+h.run_test("Delete: failure leaves buffer and state unchanged", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  local before = buf_text()
+
+  local calls = with_stubs({ answer = "Yes", mutation = { err = "GraphQL error: boom" } },
+    function() press("gD") end)
+
+  h.assert_equal(1, #calls, "no refresh after a failed delete")
+  h.assert_equal(before, buf_text(), "buffer unchanged")
+  h.assert_equal(2, #state.get_thread("thread_2").comments.nodes, "state unchanged")
+
+  close_thread()
+end)
+
+h.run_test("Delete: a draft reply survives the redraw", function()
+  open_thread("thread_2")
+  set_reply("my draft\nsecond line")
+  cursor_to("^  Done")
+
+  with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  local bufnr = state.get_thread_bufnr()
+  local reply = vim.api.nvim_buf_get_lines(bufnr, vim.b[bufnr].gh_review_reply_start, -1, false)
+  h.assert_equal("my draft\nsecond line", table.concat(reply, "\n"), "draft kept below the separator")
+  h.assert_match("Reply below", buf_text(), "still in reply mode")
+
+  close_thread()
+end)
+
+-- Thread nodes with comment `id`'s body replaced.
+local function threads_with_body(id, body)
+  local nodes = fixtures.mock_thread_nodes()
+  for _, t in ipairs(nodes) do
+    for _, c in ipairs(t.comments.nodes) do
+      if c.id == id then c.body = body end
+    end
+  end
+  return nodes
+end
+
+local function reply_area()
+  local bufnr = state.get_thread_bufnr()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, vim.b[bufnr].gh_review_reply_start, -1, false)
+  return table.concat(lines, "\n")
+end
+
+h.run_test("Edit: ge loads the body and Ctrl-S saves it", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  with_stubs({}, function() press("ge") end)
+  h.assert_equal("Done", reply_area(), "body loaded below the separator")
+  h.assert_match("── Editing alice's comment %(Ctrl%-S to save, Ctrl%-Q to cancel%) ──", buf_text())
+  h.assert_equal("Done", cursor_line_text(), "cursor on the body")
+
+  set_reply("Done, thanks")
+  local calls = with_stubs({
+    mutation = { result = { data = { updatePullRequestReviewComment = { pullRequestReviewComment = { id = "comment_3" } } } } },
+    threads = threads_with_body("comment_3", "Done, thanks"),
+  }, function() press("<C-S>") end)
+
+  h.assert_equal("comment_3", calls[1].vars.pullRequestReviewCommentId)
+  h.assert_equal("Done, thanks", calls[1].vars.body)
+  h.assert_equal("refresh", calls[2].kind)
+  h.assert_match("  Done, thanks", buf_text(), "new body rendered")
+  h.assert_match("Reply below", buf_text(), "back to reply mode")
+  h.assert_equal("", reply_area(), "reply area cleared")
+  h.assert_match("^alice", cursor_line_text(), "cursor on the edited comment")
+
+  close_thread()
+end)
+
+h.run_test("Edit: separator follows configured keys and keeps its highlight", function()
+  open_thread("thread_2")
+  require("gh_review.config").setup({ keymaps = { thread = { submit = "<leader>s", close_insert = false } } })
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+
+  local lnum = cursor_to("^── Editing")
+  h.assert_equal("── Editing alice's comment (<leader>s to save) ──", cursor_line_text())
+  vim.cmd("syntax on")
+  local group = vim.fn.synIDattr(vim.fn.synID(lnum, 5, 1), "name")
+  h.assert_equal("ghThreadReplySep", group, "editing separator highlighted like the reply separator")
+
+  close_thread()
+  require("gh_review.config").reset()
+end)
+
+h.run_test("Edit: refused without permission", function()
+  open_thread("thread_2")
+  cursor_to("^  Fix this")
+
+  local calls = with_stubs({}, function() press("ge") end)
+
+  h.assert_match("can't edit", calls.notifications[1])
+  h.assert_match("Reply below", buf_text(), "still in reply mode")
+
+  close_thread()
+end)
+
+h.run_test("Edit: empty body is refused and names the delete key", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("")
+
+  local calls = with_stubs({}, function() press("<C-S>") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_match("empty; use gD to delete", calls.notifications[1])
+  h.assert_match("Editing", buf_text(), "still editing")
+
+  close_thread()
+end)
+
+h.run_test("Edit: unchanged body sends nothing", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+
+  local calls = with_stubs({}, function() press("<C-S>") end)
+
+  h.assert_equal(0, #calls, "no API call")
+
+  close_thread()
+end)
+
+h.run_test("Edit: failure keeps the edit and the buffer", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  local calls = with_stubs({ mutation = { err = "GraphQL error: boom" } }, function() press("<C-S>") end)
+
+  h.assert_equal(1, #calls, "no refresh after a failed save")
+  h.assert_equal("Done, thanks", reply_area(), "edited text kept")
+  h.assert_match("Editing", buf_text(), "still editing")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a draft reply is only discarded after confirmation", function()
+  open_thread("thread_2")
+  set_reply("my draft")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_match("Discard", calls.prompts[1])
+  h.assert_equal("my draft", reply_area(), "draft kept on No")
+  h.assert_match("Reply below", buf_text())
+
+  cursor_to("^  Done")
+  with_stubs({ answer = "Yes" }, function() press("ge") end)
+  h.assert_equal("Done", reply_area(), "body loaded on Yes")
+  h.assert_match("Editing", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Edit: switching comments asks only when edits would be lost", function()
+  open_thread("thread_2")
+  state.get_thread("thread_2").comments.nodes[1].viewerCanUpdate = true
+
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  cursor_to("^  Fix this")
+  local calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_equal(0, #calls.prompts, "untouched edit switches without asking")
+  h.assert_match("Editing bob's comment", buf_text())
+
+  set_reply("Fix this now")
+  cursor_to("^  Done")
+  calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_equal(1, #calls.prompts, "changed edit asks first")
+  h.assert_equal("Fix this now", reply_area(), "edit kept on No")
+
+  close_thread()
+end)
+
+h.run_test("Edit: deleting the comment being edited warns and drops the edit", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  cursor_to("^  Done")
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  h.assert_match("unsaved edits", calls.prompts[1])
+  h.assert_match("Reply below", buf_text(), "edit mode ended")
+  h.assert_equal("", reply_area(), "edit text dropped")
+
+  close_thread()
+end)
+
+h.run_test("Edit: deleting another comment keeps the edit", function()
+  open_thread("thread_2")
+  state.get_thread("thread_2").comments.nodes[1].viewerCanDelete = true
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  cursor_to("^  Fix this")
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_2"),
+  }, function() press("gD") end)
+
+  h.assert_true(calls.prompts[1]:find("unsaved") == nil, "no warning for another comment")
+  h.assert_match("Editing alice's comment", buf_text(), "still editing")
+  h.assert_equal("Done, thanks", reply_area(), "edit text kept")
+
+  close_thread()
+end)
+
+h.run_test("Edit: reopening the thread starts in reply mode", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  thread.close_thread_buffer()
+
+  thread.open("thread_2")
+  h.assert_match("Reply below", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Edited marker: shown only on comments with lastEditedAt", function()
+  open_thread("thread_2")
+  local nodes = state.get_thread("thread_2").comments.nodes
+  nodes[1].lastEditedAt = vim.NIL -- JSON null
+  nodes[2].lastEditedAt = "2025-01-16T08:00:00Z"
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+
+  h.assert_match("\nalice %(2025%-01%-15, edited%):\n", buf_text())
+  h.assert_match("\nbob %(2025%-01%-15%):\n", buf_text(), "unedited comment has no marker")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a late save refresh leaves a newer edit alone", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+  local calls = with_stubs({
+    defer_refresh = true,
+    mutation = { result = { data = { updatePullRequestReviewComment = {} } } },
+    threads = threads_with_body("comment_3", "Done, thanks"),
+  }, function() press("<C-S>") end)
+
+  -- Before the refresh returns, move on to editing another thread.
+  thread.close_thread_buffer()
+  thread.open("thread_1")
+  cursor_to("^  Looks good")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Looks great")
+
+  calls.finish_refresh()
+
+  h.assert_match("Editing alice's comment", buf_text(), "newer edit still in edit mode")
+  h.assert_equal("Looks great", reply_area(), "newer edit text kept")
+  local save = with_stubs({ mutation = { result = { data = {} } } }, function() press("<C-S>") end)
+  h.assert_equal("comment_1", save[1].vars.pullRequestReviewCommentId, "Ctrl-S still saves an edit, not a reply")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a late confirmation after the buffer closed does nothing", function()
+  open_thread("thread_2")
+  set_reply("my draft")
+  cursor_to("^  Done")
+  local calls = with_stubs({ defer_select = true }, function() press("ge") end)
+
+  thread.close_thread_buffer()
+  calls.answer("Yes")
+
+  h.assert_equal(-1, state.get_thread_bufnr(), "no buffer resurrected")
+  thread.open("thread_2")
+  h.assert_match("Reply below", buf_text(), "no stale edit mode")
+
+  close_thread()
+end)
+
+-- A fake GitHub holding the two rules the bug report showed: a thread created
+-- without a review lands in an implicit pending review, and a second pending
+-- review is refused.
+local function with_fake_github(fn)
+  local api = require("gh_review.api")
+  local graphql = require("gh_review.graphql")
+  local orig_graphql, orig_run, orig_notify = api.graphql, api.run_async, vim.notify
+  local gh = { pending = nil, errors = {}, sent = {} }
+  local function fail(cb, msg)
+    gh.errors[#gh.errors + 1] = msg
+    cb(nil, "GraphQL error: gh: " .. msg)
+  end
+  gh.threads = {}
+  local n = 0
+  api.graphql = function(query, vars, cb)
+    gh.sent[#gh.sent + 1] = { query = query, vars = vars }
+    if query == graphql.MUTATION_ADD_REVIEW_THREAD then
+      if vars.pullRequestReviewId and vars.pullRequestReviewId ~= gh.pending then
+        return fail(cb, "Could not resolve to a node with the global id of '" .. vars.pullRequestReviewId .. "'.")
+      end
+      n = n + 1
+      gh.pending = gh.pending or ("implicit_rev_" .. n)
+      local t = {
+        id = "new_thread_" .. n, isResolved = false, line = vars.line, diffSide = vars.side, path = vars.path,
+        comments = { nodes = { { id = "new_c" .. n, body = vars.body, author = { login = "me" },
+          createdAt = "2025-02-01T00:00:00Z", viewerCanUpdate = true, viewerCanDelete = true,
+          pullRequestReview = { id = gh.pending, state = "PENDING" } } } },
+      }
+      gh.threads[#gh.threads + 1] = t
+      cb({ data = { addPullRequestReviewThread = { thread = t } } })
+    elseif query == graphql.MUTATION_DELETE_COMMENT then
+      gh.threads = vim.tbl_filter(function(t) return t.comments.nodes[1].id ~= vars.id end, gh.threads)
+      -- A pending review left without comments disappears.
+      if #gh.threads == 0 then gh.pending = nil end
+      cb({ data = { deletePullRequestReviewComment = { pullRequestReview = vim.NIL } } })
+    elseif query == graphql.QUERY_REVIEW_THREADS then
+      cb({ data = { repository = { pullRequest = {
+        reviewThreads = { nodes = gh.threads },
+        reviews = { nodes = gh.pending and { { id = gh.pending, state = "PENDING" } } or {} },
+      } } } })
+    elseif query == graphql.MUTATION_START_REVIEW then
+      if gh.pending then return fail(cb, "User can only have one pending review per pull request") end
+      gh.pending = "explicit_rev"
+      cb({ data = { addPullRequestReview = { pullRequestReview = { id = gh.pending, state = "PENDING" } } } })
+    elseif query == graphql.MUTATION_ADD_REVIEW_COMMENT then
+      if vars.pullRequestReviewId ~= gh.pending then return fail(cb, "review is not pending") end
+      cb({ data = { addPullRequestReviewComment = { comment = { id = "new_c2" } } } })
+    else
+      cb({ data = {} })
+    end
+  end
+  -- REST replies can't target a comment that is still pending.
+  api.run_async = function(_, cb) cb("", "gh: Not Found (HTTP 404)") end
+  vim.notify = function() end
+  local ok, err = pcall(fn, gh)
+  api.graphql, api.run_async, vim.notify = orig_graphql, orig_run, orig_notify
+  if not ok then error(err, 0) end
+  return gh
+end
+
+h.run_test("Reply: replying to a thread created without a started review joins its pending review", function()
+  thread.close_thread_buffer()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_pending_review_id("") -- opened with :GHReview, no review started
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+
+  local gh = with_fake_github(function()
+    thread.open_new("src/new_file.ts", 3, 3, "RIGHT", "Add a new comment")
+    press("<C-S>")
+    thread.open("new_thread_1")
+    set_reply("Second comment")
+    press("<C-S>")
+  end)
+
+  h.assert_equal(0, #gh.errors, "GitHub errors: " .. table.concat(gh.errors, "; "))
+  local graphql = require("gh_review.graphql")
+  local reply = vim.iter(gh.sent):find(function(c) return c.query == graphql.MUTATION_ADD_REVIEW_COMMENT end)
+  h.assert_true(reply ~= nil, "reply sent as a review comment")
+  h.assert_equal("Second comment", reply.vars.body)
+  h.assert_equal("implicit_rev_1", reply.vars.pullRequestReviewId, "reply joins the pending review")
+  h.assert_true(state.is_review_active(), "pending review known, so :GHReviewSubmit submits it")
+
+  close_thread()
+end)
+
+h.run_test("New thread: after deleting the only pending thread, a new one starts cleanly", function()
+  thread.close_thread_buffer()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_pending_review_id("") -- opened with :GHReview, no review started
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+
+  local gh = with_fake_github(function()
+    thread.open_new("src/new_file.ts", 3, 3, "RIGHT", "First thread")
+    press("<C-S>")
+    thread.open("new_thread_1")
+    cursor_to("^  First thread")
+    local orig_select = vim.ui.select
+    vim.ui.select = function(_, _, on_choice) on_choice("Yes") end
+    press("gD")
+    vim.ui.select = orig_select
+    thread.open_new("src/new_file.ts", 5, 5, "RIGHT", "Second thread")
+    press("<C-S>")
+  end)
+
+  h.assert_equal(0, #gh.errors, "GitHub errors: " .. table.concat(gh.errors, "; "))
+  h.assert_equal(1, #gh.threads, "second thread created")
+
+  cleanup_diff_buffers()
+end)
+
 h.write_results("/tmp/gh_review_test_thread.txt")

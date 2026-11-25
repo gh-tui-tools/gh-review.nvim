@@ -154,15 +154,22 @@ function M.set_pr(data)
     end
   end
 
-  -- Pick up an existing pending review if one exists
+  M.sync_pending_review(pr)
+end
+
+-- Track the viewer's pending review from a pullRequest node that selected
+-- `reviews(states: PENDING)`. GitHub opens one implicitly for a new thread and
+-- removes it once its last comment is deleted, so the plugin must follow the
+-- server rather than its own start/submit/discard calls. A node without the
+-- field leaves the current value alone.
+function M.sync_pending_review(pr)
   local reviews = get(pr, "reviews", nil)
-  if reviews then
-    local nodes = get(reviews, "nodes", {})
-    for _, review in ipairs(nodes) do
-      if review.state == "PENDING" then
-        pending_review_id = review.id
-        break
-      end
+  if not reviews then return end
+  pending_review_id = ""
+  for _, review in ipairs(get(reviews, "nodes", {})) do
+    if review.state == "PENDING" then
+      pending_review_id = review.id
+      break
     end
   end
 end
