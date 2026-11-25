@@ -197,10 +197,7 @@ local function preview_thread_at_cursor()
   lines[#lines + 1] = string.rep("─", 40)
 
   for _, c in ipairs(comments) do
-    local author_obj = state.get(c, "author", {})
-    local author = state.get(author_obj, "login", "unknown")
-    local created = (state.get(c, "createdAt", "")):gsub("T.*", "")
-    lines[#lines + 1] = string.format("%s (%s):", author, created)
+    lines[#lines + 1] = require("gh_review.thread").author_line(c)
     local body = state.get(c, "body", "")
     body = body:gsub("\r", "")
     local body_lines = vim.split(body, "\n", { plain = true })

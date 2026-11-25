@@ -48,6 +48,7 @@ M.QUERY_PR_DETAILS = [[
                 createdAt
                 viewerCanUpdate
                 viewerCanDelete
+                lastEditedAt
                 pullRequestReview {
                   id
                   state
@@ -98,6 +99,7 @@ M.QUERY_REVIEW_THREADS = [[
                 createdAt
                 viewerCanUpdate
                 viewerCanDelete
+                lastEditedAt
                 pullRequestReview {
                   id
                   state
@@ -179,6 +181,7 @@ M.MUTATION_ADD_REVIEW_THREAD = [[
             createdAt
             viewerCanUpdate
             viewerCanDelete
+            lastEditedAt
           }
         }
       }

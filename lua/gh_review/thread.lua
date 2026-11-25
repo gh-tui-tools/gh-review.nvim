@@ -80,6 +80,15 @@ local function format_reactions(comment)
   return "  " .. table.concat(parts, "  ")
 end
 
+-- "alice (2025-01-15):", or "alice (2025-01-15, edited):" once edited.
+-- Shared with the floating preview.
+function M.author_line(comment)
+  local author = state.get(state.get(comment, "author", {}), "login", "unknown")
+  local created = format_date(state.get(comment, "createdAt", ""))
+  local edited = state.get(comment, "lastEditedAt", nil) and ", edited" or ""
+  return string.format("%s (%s%s):", author, created, edited)
+end
+
 -- Drop leading and trailing blank lines.
 local function trim_blank_lines(lines)
   while #lines > 0 and vim.trim(lines[1]) == "" do
@@ -152,9 +161,7 @@ local function build_lines(t, reply_text)
   local ranges = {}
   for _, c in ipairs(comments) do
     local first = #lines + 1
-    local author = state.get(state.get(c, "author", {}), "login", "unknown")
-    local created = format_date(state.get(c, "createdAt", ""))
-    lines[#lines + 1] = string.format("%s (%s):", author, created)
+    lines[#lines + 1] = M.author_line(c)
     local body = state.get(c, "body", ""):gsub("\r", "")
     for _, bl in ipairs(vim.split(body, "\n", { plain = true })) do
       lines[#lines + 1] = "  " .. bl

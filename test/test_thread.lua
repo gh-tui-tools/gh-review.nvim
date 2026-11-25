@@ -1009,4 +1009,19 @@ h.run_test("Edit: reopening the thread starts in reply mode", function()
   close_thread()
 end)
 
+h.run_test("Edited marker: shown only on comments with lastEditedAt", function()
+  open_thread("thread_2")
+  local nodes = state.get_thread("thread_2").comments.nodes
+  nodes[1].lastEditedAt = vim.NIL -- JSON null
+  nodes[2].lastEditedAt = "2025-01-16T08:00:00Z"
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+
+  h.assert_match("\nalice %(2025%-01%-15, edited%):\n", buf_text())
+  h.assert_match("\nbob %(2025%-01%-15%):\n", buf_text(), "unedited comment has no marker")
+
+  close_thread()
+end)
+
 h.write_results("/tmp/gh_review_test_thread.txt")
