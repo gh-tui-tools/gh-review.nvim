@@ -364,6 +364,7 @@ function M.refresh_threads(on_done)
     local pr = (((result or {}).data or {}).repository or {}).pullRequest
     local thread_nodes = ((pr or {}).reviewThreads or {}).nodes or {}
     state.set_threads(thread_nodes)
+    state.sync_pending_review(pr)
     diff.refresh_signs()
     files.rerender()
     print("Threads refreshed")

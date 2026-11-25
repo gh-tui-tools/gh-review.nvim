@@ -114,6 +114,12 @@ M.QUERY_REVIEW_THREADS = [[
             }
           }
         }
+        reviews(first: 10, states: PENDING) {
+          nodes {
+            id
+            state
+          }
+        }
       }
     }
   }

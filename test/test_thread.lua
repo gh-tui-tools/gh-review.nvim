@@ -1085,15 +1085,33 @@ local function with_fake_github(fn)
     gh.errors[#gh.errors + 1] = msg
     cb(nil, "GraphQL error: gh: " .. msg)
   end
+  gh.threads = {}
+  local n = 0
   api.graphql = function(query, vars, cb)
     gh.sent[#gh.sent + 1] = { query = query, vars = vars }
     if query == graphql.MUTATION_ADD_REVIEW_THREAD then
-      gh.pending = gh.pending or vars.pullRequestReviewId or "implicit_rev"
-      cb({ data = { addPullRequestReviewThread = { thread = {
-        id = "new_thread", isResolved = false, line = vars.line, diffSide = vars.side, path = vars.path,
-        comments = { nodes = { { id = "new_c1", body = vars.body, author = { login = "me" },
+      if vars.pullRequestReviewId and vars.pullRequestReviewId ~= gh.pending then
+        return fail(cb, "Could not resolve to a node with the global id of '" .. vars.pullRequestReviewId .. "'.")
+      end
+      n = n + 1
+      gh.pending = gh.pending or ("implicit_rev_" .. n)
+      local t = {
+        id = "new_thread_" .. n, isResolved = false, line = vars.line, diffSide = vars.side, path = vars.path,
+        comments = { nodes = { { id = "new_c" .. n, body = vars.body, author = { login = "me" },
           createdAt = "2025-02-01T00:00:00Z", viewerCanUpdate = true, viewerCanDelete = true,
           pullRequestReview = { id = gh.pending, state = "PENDING" } } } },
+      }
+      gh.threads[#gh.threads + 1] = t
+      cb({ data = { addPullRequestReviewThread = { thread = t } } })
+    elseif query == graphql.MUTATION_DELETE_COMMENT then
+      gh.threads = vim.tbl_filter(function(t) return t.comments.nodes[1].id ~= vars.id end, gh.threads)
+      -- A pending review left without comments disappears.
+      if #gh.threads == 0 then gh.pending = nil end
+      cb({ data = { deletePullRequestReviewComment = { pullRequestReview = vim.NIL } } })
+    elseif query == graphql.QUERY_REVIEW_THREADS then
+      cb({ data = { repository = { pullRequest = {
+        reviewThreads = { nodes = gh.threads },
+        reviews = { nodes = gh.pending and { { id = gh.pending, state = "PENDING" } } or {} },
       } } } })
     elseif query == graphql.MUTATION_START_REVIEW then
       if gh.pending then return fail(cb, "User can only have one pending review per pull request") end
@@ -1126,7 +1144,7 @@ h.run_test("Reply: replying to a thread created without a started review joins i
   local gh = with_fake_github(function()
     thread.open_new("src/new_file.ts", 3, 3, "RIGHT", "Add a new comment")
     press("<C-S>")
-    thread.open("new_thread")
+    thread.open("new_thread_1")
     set_reply("Second comment")
     press("<C-S>")
   end)
@@ -1136,10 +1154,37 @@ h.run_test("Reply: replying to a thread created without a started review joins i
   local reply = vim.iter(gh.sent):find(function(c) return c.query == graphql.MUTATION_ADD_REVIEW_COMMENT end)
   h.assert_true(reply ~= nil, "reply sent as a review comment")
   h.assert_equal("Second comment", reply.vars.body)
-  h.assert_equal("implicit_rev", reply.vars.pullRequestReviewId, "reply joins the pending review")
+  h.assert_equal("implicit_rev_1", reply.vars.pullRequestReviewId, "reply joins the pending review")
   h.assert_true(state.is_review_active(), "pending review known, so :GHReviewSubmit submits it")
 
   close_thread()
+end)
+
+h.run_test("New thread: after deleting the only pending thread, a new one starts cleanly", function()
+  thread.close_thread_buffer()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_pending_review_id("") -- opened with :GHReview, no review started
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+
+  local gh = with_fake_github(function()
+    thread.open_new("src/new_file.ts", 3, 3, "RIGHT", "First thread")
+    press("<C-S>")
+    thread.open("new_thread_1")
+    cursor_to("^  First thread")
+    local orig_select = vim.ui.select
+    vim.ui.select = function(_, _, on_choice) on_choice("Yes") end
+    press("gD")
+    vim.ui.select = orig_select
+    thread.open_new("src/new_file.ts", 5, 5, "RIGHT", "Second thread")
+    press("<C-S>")
+  end)
+
+  h.assert_equal(0, #gh.errors, "GitHub errors: " .. table.concat(gh.errors, "; "))
+  h.assert_equal(1, #gh.threads, "second thread created")
+
+  cleanup_diff_buffers()
 end)
 
 h.write_results("/tmp/gh_review_test_thread.txt")

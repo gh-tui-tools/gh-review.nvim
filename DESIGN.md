@@ -343,6 +343,8 @@ Edit mode is module state (`editing`, holding the comment’s id, original body 
 
 After `deletePullRequestReviewComment` or a successful edit, `refresh_threads(on_done)` fetches the threads again and `redraw()` re-renders the buffer in place. The delete payload does not include the thread, and GitHub does not document what happens to a thread when its root comment goes, so the plugin always refetches rather than patching state locally. `redraw()` keeps unsent text below the separator, drops edit mode if the edited comment is gone, and closes the buffer when the thread has no comments left.
 
+The pending review is tracked from the server, not from the plugin's own calls. GitHub opens one implicitly when a thread is created without `:GHReviewStart`, and removes it when its last comment is deleted. So `submit_new_thread()` adopts the review returned with the new comment, and every `refresh_threads()` re-reads `reviews(states: PENDING)` through `state.sync_pending_review()`.
+
 #### @-mention completion
 
 The thread buffer sets `omnifunc` to a custom function that completes `@`-mentions from thread participants. `state.get_participants()` provides the candidate list. Users trigger completion with `Ctrl-X Ctrl-O` (standard Neovim omni-completion).
