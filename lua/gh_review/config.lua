@@ -29,6 +29,7 @@ M.defaults = {
     thread = {
       submit       = "<C-s>",
       resolve      = "<C-r>",
+      edit         = "ge",
       delete       = "gD",
       close        = "q",
       close_insert = "<C-q>",

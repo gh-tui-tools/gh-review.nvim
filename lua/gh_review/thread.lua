@@ -17,23 +17,34 @@ local function key_hint(lhs)
   return lhs
 end
 
+-- The comment being edited in the reply area, as { id, body, author }, or
+-- nil in reply mode. There is only ever one thread buffer.
+local editing = nil
+
 -- The separator names the keys that act on the reply, so it has to follow
 -- configuration. Disabled actions are omitted rather than shown as unusable.
--- The "── Reply below ... ──" shape is load-bearing: gh-review-thread.vim
--- matches on it.
+-- The "── Reply below ... ──" and "── Editing ... ──" shapes are
+-- load-bearing: gh-review-thread.vim matches on them.
 local function reply_separator()
   local km = config.options.keymaps.thread
+  local title, pairs_
+  if editing then
+    title = string.format("Editing %s's comment", editing.author)
+    pairs_ = { { km.submit, "save" }, { km.close_insert, "cancel" } }
+  else
+    title = "Reply below"
+    pairs_ = { { km.submit, "submit" }, { km.resolve, "resolve" }, { km.close_insert, "cancel" } }
+  end
   local hints = {}
-  for _, pair in ipairs({ { km.submit, "submit" }, { km.resolve, "resolve" },
-                          { km.close_insert, "cancel" } }) do
+  for _, pair in ipairs(pairs_) do
     if type(pair[1]) == "string" then
       hints[#hints + 1] = string.format("%s to %s", key_hint(pair[1]), pair[2])
     end
   end
   if #hints == 0 then
-    return "── Reply below ──"
+    return "── " .. title .. " ──"
   end
-  return "── Reply below (" .. table.concat(hints, ", ") .. ") ──"
+  return "── " .. title .. " (" .. table.concat(hints, ", ") .. ") ──"
 end
 
 local function format_date(iso_date)
@@ -69,18 +80,26 @@ local function format_reactions(comment)
   return "  " .. table.concat(parts, "  ")
 end
 
-local function get_reply_text(bufnr, reply_start)
-  if reply_start < 0 then return "" end
-  local lines = vim.api.nvim_buf_get_lines(bufnr, reply_start - 1, -1, false)
-  -- Trim leading blank lines
+-- Drop leading and trailing blank lines.
+local function trim_blank_lines(lines)
   while #lines > 0 and vim.trim(lines[1]) == "" do
     table.remove(lines, 1)
   end
-  -- Trim trailing blank lines
   while #lines > 0 and vim.trim(lines[#lines]) == "" do
     table.remove(lines)
   end
   return table.concat(lines, "\n")
+end
+
+local function get_reply_text(bufnr, reply_start)
+  if reply_start < 0 then return "" end
+  return trim_blank_lines(vim.api.nvim_buf_get_lines(bufnr, reply_start - 1, -1, false))
+end
+
+-- A comment body as it would read back from the reply area, so an untouched
+-- edit compares equal to the original.
+local function normalize_body(body)
+  return trim_blank_lines(vim.split(body:gsub("\r", ""), "\n", { plain = true }))
 end
 
 -- Line ranges of the rendered comments, so actions can find the comment under
@@ -185,8 +204,9 @@ end
 
 -- Redraw the open thread buffer from state after a server-side change. The
 -- cursor goes to comment `focus_id`, or failing that to the comment now at
--- `focus_index`. Unsent text in the reply area survives the redraw.
-local function redraw(thread_id, focus_id, focus_index)
+-- `focus_index`. Unsent text in the reply area survives the redraw unless
+-- `reply_text` replaces it, or the comment being edited no longer exists.
+local function redraw(thread_id, focus_id, focus_index, reply_text)
   local bufnr = state.get_thread_bufnr()
   if bufnr == -1 or vim.fn.bufexists(bufnr) == 0 then return end
   if vim.b[bufnr].gh_review_thread_id ~= thread_id then return end
@@ -199,7 +219,11 @@ local function redraw(thread_id, focus_id, focus_index)
     return
   end
 
-  local reply_text = get_reply_text(bufnr, vim.b[bufnr].gh_review_reply_start or -1)
+  reply_text = reply_text or get_reply_text(bufnr, vim.b[bufnr].gh_review_reply_start or -1)
+  if editing and not vim.iter(comments):any(function(c) return c.id == editing.id end) then
+    editing = nil
+    reply_text = ""
+  end
   render(bufnr, t, reply_text)
 
   local target
@@ -327,20 +351,50 @@ local function submit_standalone_reply(body, bufnr)
     end)
 end
 
+local function submit_edit(body, bufnr)
+  if body == "" then
+    local key = config.options.keymaps.thread.delete
+    local hint = type(key) == "string" and ("; use " .. key_hint(key) .. " to delete it") or ""
+    vim.notify("[gh-review] Comment body is empty" .. hint, vim.log.levels.WARN)
+    return
+  end
+  if body == normalize_body(editing.body) then
+    print("No changes")
+    return
+  end
+
+  local thread_id = vim.b[bufnr].gh_review_thread_id
+  local comment_id = editing.id
+  local vars = { pullRequestReviewCommentId = comment_id, body = body }
+  print("Saving comment...")
+  api_mod.graphql(graphql.MUTATION_UPDATE_COMMENT, vars, function(_, err)
+    if err then return end
+    -- Saved, but stay in edit mode until the redraw: if the refresh fails the
+    -- buffer still says "Editing", and saving again is then a no-op.
+    if editing and editing.id == comment_id then editing.body = body end
+    print("Comment saved")
+    require("gh_review").refresh_threads(function()
+      editing = nil
+      redraw(thread_id, comment_id, nil, "")
+    end)
+  end)
+end
+
 local function submit_reply()
   local bufnr = state.get_thread_bufnr()
   if bufnr == -1 then return end
   local reply_start = vim.b[bufnr].gh_review_reply_start or -1
   local body = get_reply_text(bufnr, reply_start)
+  if editing then
+    submit_edit(body, bufnr)
+    return
+  end
   if body == "" then
     print("No reply text to submit")
     return
   end
 
-  local thread_id = vim.b[bufnr].gh_review_thread_id or ""
-  local is_new = vim.b[bufnr].gh_review_is_new or false
-
-  if is_new then
+  if vim.b[bufnr].gh_review_is_new then
     submit_new_thread(body, bufnr)
   elseif state.is_review_active() then
     submit_review_reply(body, bufnr)
@@ -393,6 +447,44 @@ local function author_of(comment)
   return state.get(state.get(comment, "author", {}), "login", "unknown")
 end
 
+-- Run `fn` once text below the separator may be thrown away: right away when
+-- nothing would be lost, otherwise after the user agrees.
+local function confirm_discard(bufnr, fn)
+  local text = get_reply_text(bufnr, vim.b[bufnr].gh_review_reply_start or -1)
+  local unchanged_edit = editing and text == normalize_body(editing.body)
+  if text == "" or unchanged_edit then
+    fn()
+    return
+  end
+  vim.ui.select({ "Yes", "No" }, { prompt = "Discard the text below the separator?" }, function(choice)
+    if choice == "Yes" then fn() end
+  end)
+end
+
+local function edit_comment()
+  local bufnr = state.get_thread_bufnr()
+  if bufnr == -1 then return end
+  local comment = comment_at_cursor()
+  if not comment then
+    print("No comment under the cursor")
+    return
+  end
+  if state.get(comment, "viewerCanUpdate", false) ~= true then
+    vim.notify("[gh-review] You can't edit this comment", vim.log.levels.WARN)
+    return
+  end
+
+  confirm_discard(bufnr, function()
+    local body = state.get(comment, "body", "")
+    editing = { id = comment.id, body = body, author = author_of(comment) }
+    local reply_start = render(bufnr, state.get_thread(vim.b[bufnr].gh_review_thread_id), normalize_body(body))
+    local winid = vim.fn.bufwinid(bufnr)
+    if winid ~= -1 then
+      vim.api.nvim_win_set_cursor(winid, { math.min(reply_start + 1, vim.api.nvim_buf_line_count(bufnr)), 0 })
+    end
+  end)
+end
+
 local function delete_comment()
   local bufnr = state.get_thread_bufnr()
   if bufnr == -1 then return end
@@ -407,9 +499,12 @@ local function delete_comment()
   end
 
   local thread_id = vim.b[bufnr].gh_review_thread_id
-  vim.ui.select({ "Yes", "No" }, {
-    prompt = string.format("Delete %s's comment?", author_of(comment)),
-  }, function(choice)
+  local prompt = string.format("Delete %s's comment?", author_of(comment))
+  if editing and editing.id == comment.id
+      and get_reply_text(bufnr, vim.b[bufnr].gh_review_reply_start or -1) ~= normalize_body(editing.body) then
+    prompt = string.format("Delete %s's comment? You have unsaved edits to it.", author_of(comment))
+  end
+  vim.ui.select({ "Yes", "No" }, { prompt = prompt }, function(choice)
     if choice ~= "Yes" then return end
     print("Deleting comment...")
     api_mod.graphql(graphql.MUTATION_DELETE_COMMENT, { id = comment.id }, function(_, err)
@@ -442,6 +537,7 @@ local ACTIONS = {
     { "i", function() vim.cmd("stopinsert") submit_reply() end, "Submit reply" },
   },
   resolve = { { "n", toggle_resolve, "Toggle resolved" } },
+  edit    = { { "n", edit_comment, "Edit comment under cursor" } },
   delete  = { { "n", delete_comment, "Delete comment under cursor" } },
   close   = { { "n", function() M.close_thread_buffer() end, "Close thread" } },
   close_insert = {
@@ -582,6 +678,7 @@ function M.close_thread_buffer()
   end
   state.set_thread_bufnr(-1)
   state.set_thread_winid(-1)
+  editing = nil
 
   -- Let diff windows expand into the freed space and redraw.
   vim.cmd("wincmd =")

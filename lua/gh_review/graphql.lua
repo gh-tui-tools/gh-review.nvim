@@ -258,6 +258,16 @@ M.MUTATION_DELETE_REVIEW = [[
   }
 ]]
 
+M.MUTATION_UPDATE_COMMENT = [[
+  mutation($pullRequestReviewCommentId: ID!, $body: String!) {
+    updatePullRequestReviewComment(input: {pullRequestReviewCommentId: $pullRequestReviewCommentId, body: $body}) {
+      pullRequestReviewComment {
+        id
+      }
+    }
+  }
+]]
+
 M.MUTATION_DELETE_COMMENT = [[
   mutation($id: ID!) {
     deletePullRequestReviewComment(input: {id: $id}) {

@@ -602,12 +602,13 @@ local function cursor_line_text()
   return vim.api.nvim_get_current_line()
 end
 
--- Replace the reply area (everything below the separator) with `text`.
+-- Replace the reply area (everything after the blank line below the
+-- separator) with `text`.
 local function set_reply(text)
   local bufnr = state.get_thread_bufnr()
   local start = vim.b[bufnr].gh_review_reply_start
   vim.bo[bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(bufnr, start - 1, -1, false, vim.split(text, "\n"))
+  vim.api.nvim_buf_set_lines(bufnr, start, -1, false, vim.split(text, "\n"))
 end
 
 -- Run `fn` with api.graphql and vim.ui.select stubbed. `opts.mutation` is the
@@ -652,6 +653,9 @@ local function threads_without(thread_id, id)
 end
 
 local function open_thread(id)
+  -- A failed test can leave a modified thread buffer behind; don't let it
+  -- break the next test's setup.
+  thread.close_thread_buffer()
   require("gh_review.config").reset()
   state.reset()
   state.set_pr(fixtures.mock_pr_data())
@@ -794,6 +798,213 @@ h.run_test("Delete: a draft reply survives the redraw", function()
   local reply = vim.api.nvim_buf_get_lines(bufnr, vim.b[bufnr].gh_review_reply_start, -1, false)
   h.assert_equal("my draft\nsecond line", table.concat(reply, "\n"), "draft kept below the separator")
   h.assert_match("Reply below", buf_text(), "still in reply mode")
+
+  close_thread()
+end)
+
+-- Thread nodes with comment `id`'s body replaced.
+local function threads_with_body(id, body)
+  local nodes = fixtures.mock_thread_nodes()
+  for _, t in ipairs(nodes) do
+    for _, c in ipairs(t.comments.nodes) do
+      if c.id == id then c.body = body end
+    end
+  end
+  return nodes
+end
+
+local function reply_area()
+  local bufnr = state.get_thread_bufnr()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, vim.b[bufnr].gh_review_reply_start, -1, false)
+  return table.concat(lines, "\n")
+end
+
+h.run_test("Edit: ge loads the body and Ctrl-S saves it", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  with_stubs({}, function() press("ge") end)
+  h.assert_equal("Done", reply_area(), "body loaded below the separator")
+  h.assert_match("── Editing alice's comment %(Ctrl%-S to save, Ctrl%-Q to cancel%) ──", buf_text())
+  h.assert_equal("Done", cursor_line_text(), "cursor on the body")
+
+  set_reply("Done, thanks")
+  local calls = with_stubs({
+    mutation = { result = { data = { updatePullRequestReviewComment = { pullRequestReviewComment = { id = "comment_3" } } } } },
+    threads = threads_with_body("comment_3", "Done, thanks"),
+  }, function() press("<C-S>") end)
+
+  h.assert_equal("comment_3", calls[1].vars.pullRequestReviewCommentId)
+  h.assert_equal("Done, thanks", calls[1].vars.body)
+  h.assert_equal("refresh", calls[2].kind)
+  h.assert_match("  Done, thanks", buf_text(), "new body rendered")
+  h.assert_match("Reply below", buf_text(), "back to reply mode")
+  h.assert_equal("", reply_area(), "reply area cleared")
+  h.assert_match("^alice", cursor_line_text(), "cursor on the edited comment")
+
+  close_thread()
+end)
+
+h.run_test("Edit: separator follows configured keys and keeps its highlight", function()
+  open_thread("thread_2")
+  require("gh_review.config").setup({ keymaps = { thread = { submit = "<leader>s", close_insert = false } } })
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+
+  local lnum = cursor_to("^── Editing")
+  h.assert_equal("── Editing alice's comment (<leader>s to save) ──", cursor_line_text())
+  vim.cmd("syntax on")
+  local group = vim.fn.synIDattr(vim.fn.synID(lnum, 5, 1), "name")
+  h.assert_equal("ghThreadReplySep", group, "editing separator highlighted like the reply separator")
+
+  close_thread()
+  require("gh_review.config").reset()
+end)
+
+h.run_test("Edit: refused without permission", function()
+  open_thread("thread_2")
+  cursor_to("^  Fix this")
+
+  local calls = with_stubs({}, function() press("ge") end)
+
+  h.assert_match("can't edit", calls.notifications[1])
+  h.assert_match("Reply below", buf_text(), "still in reply mode")
+
+  close_thread()
+end)
+
+h.run_test("Edit: empty body is refused and names the delete key", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("")
+
+  local calls = with_stubs({}, function() press("<C-S>") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_match("empty; use gD to delete", calls.notifications[1])
+  h.assert_match("Editing", buf_text(), "still editing")
+
+  close_thread()
+end)
+
+h.run_test("Edit: unchanged body sends nothing", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+
+  local calls = with_stubs({}, function() press("<C-S>") end)
+
+  h.assert_equal(0, #calls, "no API call")
+
+  close_thread()
+end)
+
+h.run_test("Edit: failure keeps the edit and the buffer", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  local calls = with_stubs({ mutation = { err = "GraphQL error: boom" } }, function() press("<C-S>") end)
+
+  h.assert_equal(1, #calls, "no refresh after a failed save")
+  h.assert_equal("Done, thanks", reply_area(), "edited text kept")
+  h.assert_match("Editing", buf_text(), "still editing")
+
+  close_thread()
+end)
+
+h.run_test("Edit: a draft reply is only discarded after confirmation", function()
+  open_thread("thread_2")
+  set_reply("my draft")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_match("Discard", calls.prompts[1])
+  h.assert_equal("my draft", reply_area(), "draft kept on No")
+  h.assert_match("Reply below", buf_text())
+
+  cursor_to("^  Done")
+  with_stubs({ answer = "Yes" }, function() press("ge") end)
+  h.assert_equal("Done", reply_area(), "body loaded on Yes")
+  h.assert_match("Editing", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Edit: switching comments asks only when edits would be lost", function()
+  open_thread("thread_2")
+  state.get_thread("thread_2").comments.nodes[1].viewerCanUpdate = true
+
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  cursor_to("^  Fix this")
+  local calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_equal(0, #calls.prompts, "untouched edit switches without asking")
+  h.assert_match("Editing bob's comment", buf_text())
+
+  set_reply("Fix this now")
+  cursor_to("^  Done")
+  calls = with_stubs({ answer = "No" }, function() press("ge") end)
+  h.assert_equal(1, #calls.prompts, "changed edit asks first")
+  h.assert_equal("Fix this now", reply_area(), "edit kept on No")
+
+  close_thread()
+end)
+
+h.run_test("Edit: deleting the comment being edited warns and drops the edit", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  cursor_to("^  Done")
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  h.assert_match("unsaved edits", calls.prompts[1])
+  h.assert_match("Reply below", buf_text(), "edit mode ended")
+  h.assert_equal("", reply_area(), "edit text dropped")
+
+  close_thread()
+end)
+
+h.run_test("Edit: deleting another comment keeps the edit", function()
+  open_thread("thread_2")
+  state.get_thread("thread_2").comments.nodes[1].viewerCanDelete = true
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  set_reply("Done, thanks")
+
+  cursor_to("^  Fix this")
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_2"),
+  }, function() press("gD") end)
+
+  h.assert_true(calls.prompts[1]:find("unsaved") == nil, "no warning for another comment")
+  h.assert_match("Editing alice's comment", buf_text(), "still editing")
+  h.assert_equal("Done, thanks", reply_area(), "edit text kept")
+
+  close_thread()
+end)
+
+h.run_test("Edit: reopening the thread starts in reply mode", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  with_stubs({}, function() press("ge") end)
+  thread.close_thread_buffer()
+
+  thread.open("thread_2")
+  h.assert_match("Reply below", buf_text())
 
   close_thread()
 end)
