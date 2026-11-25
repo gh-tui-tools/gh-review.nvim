@@ -347,7 +347,8 @@ function M.discard_review()
 end
 
 -- Refresh threads from GitHub and update signs/files list.
-function M.refresh_threads()
+-- `on_done`, if given, runs only after a successful refresh.
+function M.refresh_threads(on_done)
   if state.get_pr_id() == "" then return end
 
   local refresh_vars = {
@@ -366,6 +367,7 @@ function M.refresh_threads()
     diff.refresh_signs()
     files.rerender()
     print("Threads refreshed")
+    if on_done then on_done() end
   end)
 end
 

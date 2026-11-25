@@ -41,7 +41,7 @@ function M.mock_pr_data()
                 diffSide = "RIGHT",
                 path = "src/new_file.ts",
                 comments = { nodes = {
-                  { id = "comment_1", body = "Looks good", author = { login = "alice" }, createdAt = "2025-01-15T10:30:00Z", pullRequestReview = { id = "rev_1", state = "COMMENTED" } },
+                  { id = "comment_1", viewerCanUpdate = true, viewerCanDelete = true, body = "Looks good", author = { login = "alice" }, createdAt = "2025-01-15T10:30:00Z", pullRequestReview = { id = "rev_1", state = "COMMENTED" } },
                 } },
               },
               {
@@ -55,8 +55,8 @@ function M.mock_pr_data()
                 diffSide = "RIGHT",
                 path = "src/new_file.ts",
                 comments = { nodes = {
-                  { id = "comment_2", body = "Fix this", author = { login = "bob" }, createdAt = "2025-01-15T11:00:00Z", pullRequestReview = { id = "rev_2", state = "COMMENTED" } },
-                  { id = "comment_3", body = "Done", author = { login = "alice" }, createdAt = "2025-01-15T12:00:00Z", pullRequestReview = { id = "rev_2", state = "COMMENTED" } },
+                  { id = "comment_2", viewerCanUpdate = false, viewerCanDelete = false, body = "Fix this", author = { login = "bob" }, createdAt = "2025-01-15T11:00:00Z", pullRequestReview = { id = "rev_2", state = "COMMENTED" } },
+                  { id = "comment_3", viewerCanUpdate = true, viewerCanDelete = true, body = "Done", author = { login = "alice" }, createdAt = "2025-01-15T12:00:00Z", pullRequestReview = { id = "rev_2", state = "COMMENTED" } },
                 } },
               },
               {
@@ -70,7 +70,7 @@ function M.mock_pr_data()
                 diffSide = "RIGHT",
                 path = "src/existing.ts",
                 comments = { nodes = {
-                  { id = "comment_4", body = "General comment", author = { login = "bob" }, createdAt = "2025-01-15T13:00:00Z", pullRequestReview = { id = "rev_3", state = "COMMENTED" } },
+                  { id = "comment_4", viewerCanUpdate = false, viewerCanDelete = false, body = "General comment", author = { login = "bob" }, createdAt = "2025-01-15T13:00:00Z", pullRequestReview = { id = "rev_3", state = "COMMENTED" } },
                 } },
               },
               {
@@ -84,7 +84,7 @@ function M.mock_pr_data()
                 diffSide = "LEFT",
                 path = "src/existing.ts",
                 comments = { nodes = {
-                  { id = "comment_5", body = "Pending note", author = { login = "alice" }, createdAt = "2025-01-16T09:00:00Z", pullRequestReview = { id = "pending_rev_1", state = "PENDING" } },
+                  { id = "comment_5", viewerCanUpdate = true, viewerCanDelete = true, body = "Pending note", author = { login = "alice" }, createdAt = "2025-01-16T09:00:00Z", pullRequestReview = { id = "pending_rev_1", state = "PENDING" } },
                 } },
               },
             }

@@ -566,4 +566,236 @@ h.run_test("Thread: keymaps honour configuration", function()
   config.reset()
 end)
 
+-- Comment actions (edit/delete) ------------------------------------------
+
+-- Invoke a thread-buffer mapping's callback directly (avoids termcode
+-- feedkeys issues in headless mode).
+local function press(lhs)
+  local bufnr = state.get_thread_bufnr()
+  vim.fn.win_gotoid(vim.fn.bufwinid(bufnr))
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+    if m.lhs == lhs and m.callback then
+      m.callback()
+      return
+    end
+  end
+  error("no normal-mode mapping for " .. lhs .. " on thread buffer")
+end
+
+local function buf_text()
+  return table.concat(vim.api.nvim_buf_get_lines(state.get_thread_bufnr(), 0, -1, false), "\n")
+end
+
+-- Put the cursor on the first line matching `pattern`.
+local function cursor_to(pattern)
+  local bufnr = state.get_thread_bufnr()
+  for i, l in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+    if l:find(pattern) then
+      vim.api.nvim_win_set_cursor(vim.fn.bufwinid(bufnr), { i, 0 })
+      return i
+    end
+  end
+  error("no line matches " .. pattern)
+end
+
+local function cursor_line_text()
+  return vim.api.nvim_get_current_line()
+end
+
+-- Replace the reply area (everything below the separator) with `text`.
+local function set_reply(text)
+  local bufnr = state.get_thread_bufnr()
+  local start = vim.b[bufnr].gh_review_reply_start
+  vim.bo[bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(bufnr, start - 1, -1, false, vim.split(text, "\n"))
+end
+
+-- Run `fn` with api.graphql and vim.ui.select stubbed. `opts.mutation` is the
+-- canned (result, err) for the first non-refresh call; `opts.threads` is the
+-- thread list the follow-up refresh returns; `opts.answer` is the confirm
+-- choice. Returns every call made so tests can inspect variables.
+local function with_stubs(opts, fn)
+  local api = require("gh_review.api")
+  local graphql = require("gh_review.graphql")
+  local orig_graphql, orig_select, orig_notify = api.graphql, vim.ui.select, vim.notify
+  local calls = { prompts = {}, notifications = {} }
+  api.graphql = function(query, vars, callback)
+    if query == graphql.QUERY_REVIEW_THREADS then
+      calls[#calls + 1] = { kind = "refresh", vars = vars }
+      callback({ data = { repository = { pullRequest = { reviewThreads = { nodes = opts.threads or {} } } } } })
+    else
+      calls[#calls + 1] = { kind = "mutation", query = query, vars = vars }
+      local m = opts.mutation or {}
+      callback(m.result, m.err)
+    end
+  end
+  vim.ui.select = function(items, select_opts, on_choice)
+    calls.prompts[#calls.prompts + 1] = select_opts.prompt
+    on_choice(opts.answer)
+  end
+  vim.notify = function(msg) calls.notifications[#calls.notifications + 1] = msg end
+  local ok, err = pcall(fn)
+  api.graphql, vim.ui.select, vim.notify = orig_graphql, orig_select, orig_notify
+  if not ok then error(err, 0) end
+  return calls
+end
+
+-- Thread nodes with comment `id` removed from thread `thread_id`.
+local function threads_without(thread_id, id)
+  local nodes = fixtures.mock_thread_nodes()
+  for _, t in ipairs(nodes) do
+    if t.id == thread_id then
+      t.comments.nodes = vim.tbl_filter(function(c) return c.id ~= id end, t.comments.nodes)
+    end
+  end
+  return vim.tbl_filter(function(t) return #t.comments.nodes > 0 end, nodes)
+end
+
+local function open_thread(id)
+  require("gh_review.config").reset()
+  state.reset()
+  state.set_pr(fixtures.mock_pr_data())
+  state.set_threads(fixtures.mock_thread_nodes())
+  setup_diff_buffers("src/new_file.ts", 30)
+  state.set_diff_path("src/new_file.ts")
+  thread.open(id)
+end
+
+local function close_thread()
+  thread.close_thread_buffer()
+  cleanup_diff_buffers()
+end
+
+h.run_test("Delete: gD deletes the comment under the cursor and redraws", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = { pullRequestReview = { id = "rev_2" } } } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  h.assert_equal("comment_3", calls[1].vars.id, "mutation targets the comment under the cursor")
+  h.assert_equal("refresh", calls[2].kind, "threads fetched again after delete")
+  h.assert_match("alice's comment", calls.prompts[1], "confirmation names the author")
+  h.assert_true(state.get_thread_bufnr() ~= -1, "buffer stays open")
+  h.assert_true(buf_text():find("Done") == nil, "deleted comment gone from the buffer")
+  h.assert_match("Fix this", buf_text(), "other comments kept")
+  h.assert_match("^bob", cursor_line_text(), "cursor lands on the comment that took its place")
+
+  close_thread()
+end)
+
+h.run_test("Delete: key follows configuration and can be disabled", function()
+  local config = require("gh_review.config")
+
+  open_thread("thread_2")
+  config.setup({ keymaps = { thread = { delete = "X" } } })
+  close_thread()
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  cursor_to("^  Done")
+  local calls = with_stubs({ answer = "No" }, function() press("X") end)
+  h.assert_equal(1, #calls.prompts, "remapped key deletes")
+  close_thread()
+
+  config.setup({ keymaps = { thread = { delete = false } } })
+  setup_diff_buffers("src/new_file.ts", 30)
+  thread.open("thread_2")
+  local ok = pcall(press, "gD")
+  h.assert_false(ok, "disabled action leaves no mapping")
+  close_thread()
+
+  config.reset()
+end)
+
+h.run_test("Delete: refused without permission, before any prompt or call", function()
+  open_thread("thread_2")
+  cursor_to("^  Fix this")
+
+  local calls = with_stubs({ answer = "Yes" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_equal(0, #calls.prompts, "no confirmation")
+  h.assert_match("can't delete", calls.notifications[1])
+  h.assert_match("Fix this", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Delete: declining the confirmation sends nothing", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+
+  local calls = with_stubs({ answer = "No" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_match("Done", buf_text())
+
+  close_thread()
+end)
+
+h.run_test("Delete: cursor outside every comment does nothing", function()
+  open_thread("thread_2")
+  cursor_to("^Thread on")
+
+  local calls = with_stubs({ answer = "Yes" }, function() press("gD") end)
+
+  h.assert_equal(0, #calls, "no API call")
+  h.assert_equal(0, #calls.prompts, "no confirmation")
+
+  close_thread()
+end)
+
+h.run_test("Delete: removing the only comment closes the buffer", function()
+  open_thread("thread_1")
+  cursor_to("^  Looks good")
+
+  with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_1", "comment_1"),
+  }, function() press("gD") end)
+
+  h.assert_equal(-1, state.get_thread_bufnr(), "thread buffer closed")
+  h.assert_true(next(state.get_thread("thread_1") or {}) == nil, "thread gone from state")
+
+  cleanup_diff_buffers()
+end)
+
+h.run_test("Delete: failure leaves buffer and state unchanged", function()
+  open_thread("thread_2")
+  cursor_to("^  Done")
+  local before = buf_text()
+
+  local calls = with_stubs({ answer = "Yes", mutation = { err = "GraphQL error: boom" } },
+    function() press("gD") end)
+
+  h.assert_equal(1, #calls, "no refresh after a failed delete")
+  h.assert_equal(before, buf_text(), "buffer unchanged")
+  h.assert_equal(2, #state.get_thread("thread_2").comments.nodes, "state unchanged")
+
+  close_thread()
+end)
+
+h.run_test("Delete: a draft reply survives the redraw", function()
+  open_thread("thread_2")
+  set_reply("my draft\nsecond line")
+  cursor_to("^  Done")
+
+  with_stubs({
+    answer = "Yes",
+    mutation = { result = { data = { deletePullRequestReviewComment = {} } } },
+    threads = threads_without("thread_2", "comment_3"),
+  }, function() press("gD") end)
+
+  local bufnr = state.get_thread_bufnr()
+  local reply = vim.api.nvim_buf_get_lines(bufnr, vim.b[bufnr].gh_review_reply_start, -1, false)
+  h.assert_equal("my draft\nsecond line", table.concat(reply, "\n"), "draft kept below the separator")
+  h.assert_match("Reply below", buf_text(), "still in reply mode")
+
+  close_thread()
+end)
+
 h.write_results("/tmp/gh_review_test_thread.txt")

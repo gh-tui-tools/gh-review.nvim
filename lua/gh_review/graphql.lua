@@ -46,6 +46,8 @@ M.QUERY_PR_DETAILS = [[
                   login
                 }
                 createdAt
+                viewerCanUpdate
+                viewerCanDelete
                 pullRequestReview {
                   id
                   state
@@ -94,6 +96,8 @@ M.QUERY_REVIEW_THREADS = [[
                   login
                 }
                 createdAt
+                viewerCanUpdate
+                viewerCanDelete
                 pullRequestReview {
                   id
                   state
@@ -173,6 +177,8 @@ M.MUTATION_ADD_REVIEW_THREAD = [[
               login
             }
             createdAt
+            viewerCanUpdate
+            viewerCanDelete
           }
         }
       }
@@ -247,6 +253,16 @@ M.MUTATION_DELETE_REVIEW = [[
       pullRequestReview {
         id
         state
+      }
+    }
+  }
+]]
+
+M.MUTATION_DELETE_COMMENT = [[
+  mutation($id: ID!) {
+    deletePullRequestReviewComment(input: {id: $id}) {
+      pullRequestReview {
+        id
       }
     }
   }
